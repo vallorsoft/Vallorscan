@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Vallorscan</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" onclick="App.go('list')">🚚 Vallorscan</div>
+    <div class="top-actions">
+      <span id="net-dot" class="dot" title="kapcsolat"></span>
+      <button class="icon-btn" title="Beállítások" onclick="App.go('settings')">⚙</button>
+    </div>
+  </header>
+
+  <div id="search-bar" class="search-bar">
+    <input id="q" type="search" inputmode="search" autocomplete="off"
+           placeholder="Keresés: cégnév · CUI · rendszám · kulcsszó" />
+    <div class="chips" id="chips">
+      <button class="chip active" data-f="">Mind</button>
+      <button class="chip" data-f="non_payment">Nem fizet</button>
+      <button class="chip" data-f="late_payment">Késés</button>
+      <button class="chip" data-f="fraud">Csalás</button>
+      <button class="chip" data-f="damage">Kár</button>
+    </div>
+  </div>
+
+  <main id="view"></main>
+
+  <button id="fab" class="fab" title="Új bejegyzés" onclick="App.openCompose()">＋</button>
+
+  <!-- Megosztás/új bejegyzés review panel -->
+  <div id="sheet" class="sheet hidden">
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <strong id="sheet-title">Új bejegyzés</strong>
+        <button class="icon-btn" onclick="App.closeSheet()">✕</button>
+      </div>
+      <div id="sheet-body" class="sheet-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

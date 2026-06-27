@@ -1,0 +1,20 @@
+{
+  "name": "vallorscan",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fuvarozó cégek ellenőrzése – nem fizető / problémás cégek bejegyzéseinek mentése és visszakeresése AI-feldolgozással (PWA + Node/SQLite).",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node scripts/seed.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2"
+  }
+}
