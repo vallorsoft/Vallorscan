@@ -11,10 +11,19 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "seed": "node scripts/seed.js",
-    "test": "node --test"
+    "test": "node --test",
+    "cap:sync": "cap sync android",
+    "android:apk": "cap sync android && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/app": "^6.0.3",
+    "@capacitor/core": "^6.2.1",
     "better-sqlite3": "^11.8.1",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "send-intent": "^6.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.1"
   }
 }

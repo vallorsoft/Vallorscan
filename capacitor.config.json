@@ -1,0 +1,16 @@
+{
+  "appId": "com.vallorsoft.vallorscan",
+  "appName": "Vallorscan",
+  "webDir": "public",
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

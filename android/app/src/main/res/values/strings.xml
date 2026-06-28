@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vallorscan</string>
+    <string name="title_activity_main">Vallorscan</string>
+    <string name="package_name">com.vallorsoft.vallorscan</string>
+    <string name="custom_url_scheme">com.vallorsoft.vallorscan</string>
+</resources>

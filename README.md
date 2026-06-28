@@ -39,8 +39,44 @@ npm run seed                # demó adat (elhagyható)
 npm start                   # http://localhost:4000
 ```
 
-Telefonon: nyisd meg a szerver címét böngészőben → **„Hozzáadás a kezdőképernyőhöz”**
-(PWA telepítés). Ezután a Facebookban: **Megosztás → Vallorscan**.
+**PC-n:** nyisd meg a szerver címét böngészőben → **„Hozzáadás a kezdőképernyőhöz”**
+(PWA telepítés, opcionális). Ezután a Facebookban: **Megosztás → Vallorscan**.
+
+---
+
+## Telepíthető Android app (APK)
+
+A böngészős/PWA mód mellett van egy **natív, telepíthető Android alkalmazás** is
+([Capacitor](https://capacitorjs.com) wrapper a `public/` frontend köré). Play
+áruház **nem kell** – az APK közvetlenül a telefonra telepíthető (sideload).
+
+- A natív app ugyanahhoz a **szerverhez csatlakozik** (a szerver címét és a tokent
+  a **⚙ Beállítások**-ban add meg – első indításkor automatikusan oda visz).
+- A Facebook **„Megosztás → Vallorscan”** natívan is működik: az app megjelenik az
+  Android megosztó-lapján (`ACTION_SEND` / `text/plain` intent → `send-intent` plugin).
+
+### APK letöltése (ajánlott – build nélkül)
+
+Az APK-t a **GitHub Actions** fordítja automatikusan minden push-ra:
+
+1. GitHub → **Actions** → a legutóbbi **CI** futás.
+2. Az **Artifacts** alatt töltsd le a `vallorscan-debug-apk` csomagot.
+3. Másold a telefonra, és telepítsd (engedélyezd az „ismeretlen forrásból” telepítést).
+
+### APK fordítása helyben (opcionális)
+
+Előfeltétel: **JDK 17** + **Android SDK** (Android Studio vagy command-line tools).
+
+```bash
+npm install
+npm run android:apk      # cap sync + ./gradlew assembleDebug
+# eredmény: android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Fejlesztéshez Android Studióban: `npx cap open android`.
+
+> A `debug` APK aláírása a fejlesztői debug-kulccsal történik – személyes
+> használatra tökéletes. Nyilvános terjesztéshez release-aláírás kell.
 
 ### Tesztek
 
@@ -155,6 +191,9 @@ vallorscan/
 │   ├── events.js     # SSE broadcaster
 │   └── auth.js       # token hitelesítés
 ├── public/           # PWA: index.html, app.js, styles.css, sw.js, manifest, ikonok
+├── android/          # natív Android app (Capacitor wrapper) – APK build
+├── capacitor.config.json  # Capacitor konfiguráció (appId, webDir, plugins)
 ├── scripts/          # seed, ikon-generátor
-└── test/             # mag-logika tesztek
+├── test/             # mag-logika tesztek
+└── .github/workflows/ci.yml  # CI: tesztek + Android APK build
 ```

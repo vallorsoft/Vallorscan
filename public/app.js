@@ -110,6 +110,7 @@ const App = (() => {
   function closeSheet() { sheet.classList.add('hidden'); document.getElementById('sheet-body').innerHTML = ''; }
 
   async function openCompose(prefill) {
+    pendingFromShare = !!prefill?.fromShare;
     sheet.classList.remove('hidden');
     document.getElementById('sheet-title').textContent = 'Új bejegyzés';
     const body = document.getElementById('sheet-body');
@@ -122,6 +123,7 @@ const App = (() => {
   }
 
   let lastAi = null;
+  let pendingFromShare = false;
   async function runPreview() {
     const text = document.getElementById('c-raw').value.trim();
     const url = document.getElementById('c-url').value.trim();
@@ -130,7 +132,7 @@ const App = (() => {
     let r;
     try { r = await api('/share/preview', { method: 'POST', body: JSON.stringify({ text, url }) }); }
     catch { return toast('Nincs kapcsolat – mentés vázlatként offline.'); }
-    lastAi = { text, url, ...r };
+    lastAi = { text, url, fromShare: pendingFromShare, ...r };
     renderReview(text, url, r);
   }
 
@@ -261,8 +263,39 @@ const App = (() => {
     const p = new URLSearchParams(location.search);
     if (p.get('shared')) {
       history.replaceState({}, '', '/');
-      openCompose({ text: p.get('text') || '', url: p.get('url') || '' });
-      lastAi = lastAi || {}; if (lastAi) lastAi.fromShare = true;
+      openCompose({ text: p.get('text') || '', url: p.get('url') || '', fromShare: true });
+    }
+  }
+
+  // ---- Natív megosztás fogadása (Android share sheet → send-intent plugin) ----
+  function isNative() {
+    return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  }
+  const safeDecode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+  function ingestSharedText(raw) {
+    const s = (raw || '').trim();
+    if (!s) return;
+    const m = s.match(/https?:\/\/\S+/);
+    openCompose({ text: s, url: m ? m[0] : '', fromShare: true });
+  }
+  async function initNativeShare() {
+    if (!isNative()) return;
+    const plugins = window.Capacitor.Plugins || {};
+    const SendIntent = plugins.SendIntent;
+    const AppPlugin = plugins.App;
+    const consume = (res) => {
+      if (!res) return;
+      const raw = res.text || res.url || res.title || res.description || '';
+      if (raw) ingestSharedText(safeDecode(raw));
+    };
+    const check = async () => {
+      if (!SendIntent || !SendIntent.checkSendIntentReceived) return;
+      try { consume(await SendIntent.checkSendIntentReceived()); } catch {}
+    };
+    await check(); // hidegindításkor érkezett megosztás
+    window.addEventListener('sendIntentReceived', check); // futás közbeni megosztás
+    if (AppPlugin && AppPlugin.addListener) {
+      AppPlugin.addListener('appStateChange', ({ isActive }) => { if (isActive) check(); });
     }
   }
 
@@ -282,8 +315,11 @@ const App = (() => {
     });
     window.addEventListener('online', updateNet);
     window.addEventListener('offline', updateNet);
-    updateNet(); connectSSE(); loadList(); handleSharedParam();
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+    updateNet(); connectSSE(); loadList(); handleSharedParam(); initNativeShare();
+    // Service worker csak a böngészős/PWA módban kell (natív appban nincs rá szükség).
+    if (!isNative() && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+    // Natív appban a szerver címét kötelező megadni (nincs azonos eredetű kiszolgáló).
+    if (isNative() && !base()) { toast('Add meg a szerver címét a ⚙ Beállításokban'); settings(); }
   }
 
   document.addEventListener('DOMContentLoaded', init);
