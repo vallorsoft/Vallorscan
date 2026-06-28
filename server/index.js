@@ -10,6 +10,7 @@ import { listCompanies, getCompany, search, stats, addCompanyRef, removeCompanyR
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
 import { scheduleBackups, dbFilePath } from './backup.js';
+import { scheduleMaintenance } from './maintenance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -176,4 +177,5 @@ app.get('*', (req, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
 app.listen(PORT, HOST, () => {
   console.log(`Vallorscan fut: http://${HOST}:${PORT}  (auth: ${authEnabled ? 'BE' : 'KI – csak teszthez'})`);
   scheduleBackups();
+  scheduleMaintenance();
 });

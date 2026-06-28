@@ -99,6 +99,17 @@ const App = (() => {
     } catch { renderList([]); }
   }
 
+  // Mentés után: ha létezik nagyon hasonló nevű MÁSIK cég, jelezzük (összevonáshoz).
+  async function checkDuplicate(savedId, savedName) {
+    const n = (savedName || '').trim();
+    if (n.length < 3) return;
+    let r; try { r = await api('/search?q=' + encodeURIComponent(n)); } catch { return; }
+    const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+    const target = norm(n);
+    const dup = (r.companies || []).find((c) => c.id !== savedId && target && (norm(c.name).includes(target) || target.includes(norm(c.name))));
+    if (dup) toast('Hasonló cég is létezik: ' + dup.name + ' — a cég oldalán összevonhatod.');
+  }
+
   // ---- Render: cég részletek (értékelés + komment-idővonal) ----
   async function openCompany(id) {
     state.view = 'company';
@@ -381,6 +392,7 @@ const App = (() => {
       try { await api('/companies/' + res.company.id + '/refs', { method: 'POST', body: JSON.stringify({ exchange: val('m-ex'), ref_code: code }) }); } catch {}
     }
     toast('Mentve ✓'); closeSheet(); loadList();
+    if (res.company) checkDuplicate(res.company.id, res.company.name);
   }
 
   async function acSearch(q) {
@@ -615,6 +627,7 @@ const App = (() => {
       .then((r) => {
         toast(`Jóváhagyva ✓ (${r.inserted} új komment${r.skipped ? `, ${r.skipped} duplikátum` : ''})`);
         closeSheet(); refreshPendingCount(); openPending();
+        if (r.company) checkDuplicate(r.company.id, r.company.name);
       })
       .catch((e) => toast('Mentés sikertelen: ' + e.message));
   }
