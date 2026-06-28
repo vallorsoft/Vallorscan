@@ -1,41 +1,41 @@
-# Vallorscan – Fly.io konfiguráció
-# Fontos: SQLite egyetlen fájl → CSAK 1 gép futhat, perzisztens volume-mal.
-# Soha ne skálázd 2+ gépre, mert a SQLite fájl nem osztható meg gépek között.
+# fly.toml app configuration file generated for vallorscan on 2026-06-28T11:14:58Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "vallorscan"
-primary_region = "fra"   # Frankfurt – közel HU/RO-hoz; igény szerint módosítható
+app = 'vallorscan'
+primary_region = 'fra'
 
 [build]
 
 [env]
-  PORT = "8080"
-  HOST = "0.0.0.0"
-  DB_PATH = "/data/vallorscan.sqlite"
+  DB_PATH = '/data/vallorscan.sqlite'
+  HOST = '0.0.0.0'
+  PORT = '8080'
 
-# Perzisztens lemez a SQLite adatbázisnak (deploy között megmarad).
-[mounts]
-  source = "vallorscan_data"
-  destination = "/data"
+[[mounts]]
+  source = 'vallorscan_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080
-  force_https = true          # PWA + Web Share Target HTTPS-t igényel
-  auto_stop_machines = "stop"
+  force_https = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1    # mindig fusson 1 gép (valós idejű SSE)
+  min_machines_running = 1
 
   [http_service.concurrency]
-    type = "requests"
-    soft_limit = 200
+    type = 'requests'
     hard_limit = 250
+    soft_limit = 200
 
   [[http_service.checks]]
-    interval = "15s"
-    timeout = "2s"
-    grace_period = "10s"
-    method = "GET"
-    path = "/healthz"
+    interval = '15s'
+    timeout = '2s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/healthz'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = 'shared-cpu-1x'
+  memory = '512mb'
