@@ -101,6 +101,18 @@ CREATE INDEX IF NOT EXISTS ix_comments_company ON comments(company_id, comment_d
 CREATE UNIQUE INDEX IF NOT EXISTS ux_comments_dedup ON comments(dedup_key) WHERE dedup_key IS NOT NULL;
 `);
 
+// --- Migrációk: meglévő adatbázisnál a hiányzó oszlopok pótlása (adatvesztés nélkül) ---
+function addColumnIfMissing(table, col, type) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === col)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+  }
+}
+addColumnIfMissing('comments', 'tags', 'TEXT');       // JSON tömb: problématípus-címkék
+addColumnIfMissing('comments', 'amount', 'REAL');     // említett tartozás összege
+addColumnIfMissing('comments', 'currency', 'TEXT');   // pénznem
+addColumnIfMissing('comments', 'due_text', 'TEXT');   // számla/lejárat megnevezése
+
 export function now() {
   return new Date().toISOString();
 }

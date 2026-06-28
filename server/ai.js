@@ -160,6 +160,21 @@ export function fallbackExtract(text) {
 
 const SENTIMENTS = ['positive', 'negative', 'neutral'];
 const PAY_SIGNALS = ['pays', 'nonpay', 'unknown'];
+// Komment-címkék (problématípus / viselkedés) – ennél több infót adnak, mint a puszta fizet/nem.
+export const COMMENT_TAGS = [
+  'non_payment',          // nem fizet
+  'late_payment',         // késve fizet
+  'no_contact',           // nem veszi fel / nem válaszol
+  'pays_only_on_report',  // csak incidens/feljelentés/nyomásra fizet
+  'blocked_on_exchange',  // fuvarbörzén tiltva/blokkolva
+  'eventually_paid',      // végül fizetett (nehezen / nyomásra)
+  'fraud',                // csalás/átverés (găinari, javre, escroc)
+  'damage',               // káresemény
+  'dispute',              // vita / reklamáció
+  'recommended',          // ajánlják
+  'good_payer',           // korrekt / jól fizet
+  'other',
+];
 
 const COMMENT_SCHEMA = {
   type: 'object',
@@ -174,6 +189,10 @@ const COMMENT_SCHEMA = {
           text: { type: 'string' },
           sentiment: { type: 'string', enum: SENTIMENTS },
           pay_signal: { type: 'string', enum: PAY_SIGNALS },
+          tags: { type: 'array', items: { type: 'string', enum: COMMENT_TAGS } },
+          amount: { type: 'number', nullable: true },
+          currency: { type: 'string', nullable: true },
+          due_text: { type: 'string', nullable: true },
           date_text: { type: 'string', nullable: true },
           date_iso: { type: 'string', nullable: true },
         },
@@ -195,12 +214,26 @@ Olvasd ki a posztot és MINDEN kommentet a képekről. Minden egyes kommenthez a
 - text: a komment szövege tömören, az eredeti nyelven.
 - sentiment: a cégre nézve 'positive' (korrekt, fizet, ajánlják), 'negative'
   (nem fizet, csalás, panasz, megkárosít), vagy 'neutral' (kérdés, nem egyértelmű).
-- pay_signal: 'pays' (arra utal, hogy fizet/korrekt), 'nonpay' (nem fizet/megkárosít), 'unknown'.
-- date_text: a kommentnél látható időbélyeg EREDETI szövege (pl. "1 éve", "3 hét", "2 z", "5 std").
+- pay_signal: 'pays' (fizet/korrekt), 'nonpay' (nem fizet/megkárosít), 'unknown'.
+- tags: a kommentre illő címkék listája az alábbiakból (0 vagy több):
+    non_payment (nem fizet), late_payment (késve fizet),
+    no_contact (nem veszi fel a telefont / nem válaszol, pl. "nu răspund la telefon"),
+    pays_only_on_report (csak incidens/feljelentés/nyomásra fizet, pl. "plătesc doar la incident"),
+    blocked_on_exchange (fuvarbörzén tiltva/blokkolva, pl. "blocați de pe Bursă"),
+    eventually_paid (végül fizetett, nehezen/nyomásra, pl. sok hívás után),
+    fraud (csalás/átverés, pl. "găinari", "javre", "escroc", "țepari"),
+    damage (káresemény), dispute (vita/reklamáció),
+    recommended (ajánlják), good_payer (korrekt / jól fizet), other.
+- amount: ha említenek konkrét tartozás-összeget, a szám (csak a szám). Pl. "4800 euro" -> 4800.
+- currency: a pénznem (EUR, RON, HUF), ha van.
+- due_text: a számla/lejárat megnevezése, ha említik (pl. "factura din decembrie", "scadentă 22-01-2026").
+- date_text: a kommentnél látható időbélyeg EREDETI szövege (pl. "17 h", "7 h", "1 éve", "2 z").
 - date_iso: ebből számított dátum 'YYYY-MM-DD' formában. MA: ${today}.
   A relatív időt EHHEZ képest számold vissza. Ha nincs látható időpont, hagyd null.
 
 A poszt szövegéből próbáld kiolvasni az érintett cég nevét is (company_name).
+Ha egy komment egy táblázat/incidens-kártya képét tartalmazza (összeg, lejárat, státusz),
+abból is nyerd ki az összeget, lejáratot és a vonatkozó címkéket.
 CSAK a képeken ténylegesen látható tartalomra támaszkodj, ne találj ki kommentet.`;
 }
 
@@ -254,6 +287,10 @@ function sanitizeComments(o) {
       text: String(c.text || '').trim(),
       sentiment: SENTIMENTS.includes(c.sentiment) ? c.sentiment : 'neutral',
       pay_signal: PAY_SIGNALS.includes(c.pay_signal) ? c.pay_signal : 'unknown',
+      tags: [...new Set((c.tags || []).filter((t) => COMMENT_TAGS.includes(t)))],
+      amount: numOrNull(c.amount),
+      currency: normCurrency(c.currency),
+      due_text: c.due_text?.trim() || null,
       date_text: c.date_text?.trim() || null,
       comment_date: isoDateOrNull(c.date_iso),
     }))

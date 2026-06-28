@@ -6,6 +6,16 @@ const App = (() => {
   };
   const VERDICT_LABELS = { pays: 'Fizető', nonpay: 'Nem fizető', mixed: 'Vegyes', unknown: 'Nincs adat' };
   const SENT_ICON = { positive: '👍', negative: '👎', neutral: '😐' };
+  const TAG_LABELS = {
+    non_payment: 'nem fizet', late_payment: 'késve fizet', no_contact: 'nem elérhető',
+    pays_only_on_report: 'csak feljelentésre fizet', blocked_on_exchange: 'börzén tiltva',
+    eventually_paid: 'végül fizetett', fraud: 'csalás', damage: 'kár', dispute: 'vita',
+    recommended: 'ajánlott', good_payer: 'korrekt fizető', other: 'egyéb',
+  };
+  const parseTags = (t) => Array.isArray(t) ? t : (() => { try { return JSON.parse(t) || []; } catch { return []; } })();
+  // Kis/nagybetűtől és ékezettől független névösszehasonlítás (a felülírás-gomb megjelenítéséhez).
+  const normName = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+  const tagsHtml = (tags) => tags.length ? `<div class="tagrow">${tags.map((t) => `<span class="tag">${TAG_LABELS[t] || t}</span>`).join('')}</div>` : '';
   let state = { view: 'list', filter: '', q: '', config: null };
   let report = { images: [], preview: null, company: { id: '', name: '', cui: '' } };
   let acMatches = [];
@@ -96,6 +106,9 @@ const App = (() => {
             ${cm.comment_date ? dateStr(cm.comment_date) : (cm.date_text ? esc(cm.date_text) : '')}
             ${cm.author ? `· ${esc(cm.author)}` : ''}</div>
           <p class="tl-text">${esc(cm.text)}</p>
+          ${cm.amount ? `<div class="debt">💶 ${money(cm.amount, cm.currency)}</div>` : ''}
+          ${cm.due_text ? `<div class="muted">📅 ${esc(cm.due_text)}</div>` : ''}
+          ${tagsHtml(parseTags(cm.tags))}
         </div>`).join('');
       const posts = (c.posts || []).map((p) => `
         <div class="tl-item">
@@ -135,7 +148,7 @@ const App = (() => {
     sheet.classList.remove('hidden');
     document.getElementById('sheet-title').textContent = 'Új beküldés';
     document.getElementById('sheet-body').innerHTML = `
-      <label>Cég (írj 3+ betűt a kereséshez)</label>
+      <label>Cég (opcionális – írj 3+ betűt kereséshez, vagy az AI felismeri)</label>
       <input class="f" id="r-company" placeholder="Cég neve" autocomplete="off" />
       <input type="hidden" id="r-company-id" />
       <div id="r-ac" class="ac-list"></div>
@@ -213,17 +226,33 @@ const App = (() => {
     });
   }
 
+  function renderProcessing() {
+    document.getElementById('sheet-title').textContent = 'Feldolgozás';
+    document.getElementById('sheet-body').innerHTML = `
+      <div class="processing">
+        <div class="spinner"></div>
+        <p><strong>🤖 Az AI elemzi a képeket…</strong></p>
+        <p class="muted">Kiolvassa a kommenteket, összegeket, dátumokat és a problémákat. Ez pár másodperc.</p>
+      </div>`;
+  }
+
   async function analyzeReport() {
     if (!report.images.length) return toast('Tölts fel legalább egy képernyőképet');
+    // A cégnév itt NEM kötelező – ha üres, az AI által kiolvasottat ajánljuk fel utána.
     report.company = { id: val('r-company-id'), name: val('r-company'), cui: val('r-cui') };
-    toast('🤖 AI elemzi a képeket… (pár másodperc)');
+    renderProcessing(); // azonnal ugrunk a feldolgozás ablakba (nem fagyott képernyő)
     let r;
     try {
       r = await api('/reports/preview', {
         method: 'POST',
         body: JSON.stringify({ images: report.images.map(({ mimeType, data }) => ({ mimeType, data })) }),
       });
-    } catch (e) { return toast('Elemzés sikertelen: ' + e.message); }
+    } catch (e) {
+      document.getElementById('sheet-body').innerHTML = `
+        <div class="review-flag">❌ Elemzés sikertelen: ${esc(e.message)}</div>
+        <button class="btn btn-ghost" onclick="App.closeSheet()">Bezár</button>`;
+      return;
+    }
     report.preview = r;
     if (r.company_name && !report.company.name) report.company.name = r.company_name;
     renderReportReview(r);
@@ -239,12 +268,22 @@ const App = (() => {
   function renderReportReview(r) {
     const cs = r.comments || [];
     const t = tally(cs);
+    const ai = r.company_name;
+    const typed = (report.company.name || '').trim();
+    // Az AI által kiolvasott cégnév – üres mezőbe beilleszthető, eltérés esetén felülírható.
+    const aiHint = ai
+      ? `<div class="suggest">🔎 Az AI ezt a cégnevet olvasta ki a posztból: <strong>${esc(ai)}</strong>
+          ${normName(ai) !== normName(typed)
+            ? `<br/><button class="btn-ghost" style="display:inline;width:auto;padding:5px 12px;margin-top:6px" onclick="App.useAiName()">${typed ? 'Felülírás ezzel' : 'Cégnév beillesztése'}</button>`
+            : ' ✓'}</div>`
+      : `<div class="review-flag">ℹ️ Az AI nem talált egyértelmű cégnevet – írd be kézzel a mentéshez.</div>`;
     document.getElementById('sheet-title').textContent = 'Ellenőrzés & mentés';
     document.getElementById('sheet-body').innerHTML = `
       <div class="review-flag">📋 ${cs.length} komment felismerve. Ellenőrizd/javítsd, majd mentsd.</div>
-      <label>Cég</label>
+      <label>Cég (kötelező)</label>
       <input class="f" id="rv-company" value="${esc(report.company.name)}" placeholder="Cég neve" />
       <input type="hidden" id="rv-company-id" value="${esc(report.company.id)}" />
+      ${aiHint}
       <input class="f" id="rv-cui" style="margin-top:8px" value="${esc(report.company.cui)}" placeholder="CUI (opcionális)" />
       <div class="tally"><span class="s-pos">👍 ${t.positive || 0}</span>
         <span class="s-neg">👎 ${t.negative || 0}</span>
@@ -261,18 +300,40 @@ const App = (() => {
         <button class="cmt-del" onclick="App.delComment(${i})">🗑</button>
       </div>
       <textarea class="f cmt-text">${esc(c.text)}</textarea>
+      <div class="cmt-extra">
+        <input class="f cmt-amount" inputmode="decimal" value="${c.amount ?? ''}" placeholder="összeg" />
+        <input class="f cmt-cur" value="${esc(c.currency || '')}" placeholder="pénznem" />
+      </div>
+      ${c.due_text ? `<div class="cmt-due muted">📅 ${esc(c.due_text)}</div>` : ''}
+      ${tagsHtml(c.tags || [])}
+      ${c.author ? `<div class="muted cmt-author">— ${esc(c.author)}</div>` : ''}
     </div>`;
   }
   function syncReview() {
     const rows = [...document.querySelectorAll('#rv-comments .cmt')];
-    report.preview.comments = rows.map((row) => ({
-      sentiment: row.querySelector('.cmt-sent').value,
-      comment_date: row.querySelector('.cmt-date').value.trim() || null,
-      text: row.querySelector('.cmt-text').value.trim(),
-    }));
+    report.preview.comments = rows.map((row) => {
+      const prev = report.preview.comments[Number(row.dataset.i)] || {};
+      return {
+        author: prev.author || null,
+        tags: prev.tags || [],
+        due_text: prev.due_text || null,
+        sentiment: row.querySelector('.cmt-sent').value,
+        comment_date: row.querySelector('.cmt-date').value.trim() || null,
+        amount: row.querySelector('.cmt-amount').value.trim() || null,
+        currency: row.querySelector('.cmt-cur').value.trim() || null,
+        text: row.querySelector('.cmt-text').value.trim(),
+      };
+    });
     report.company = { id: val('rv-company-id'), name: val('rv-company'), cui: val('rv-cui') };
   }
   function delComment(i) { syncReview(); report.preview.comments.splice(i, 1); renderReportReview(report.preview); }
+  function useAiName() {
+    const n = report.preview?.company_name; if (!n) return;
+    syncReview();                                  // megőrizzük a komment-szerkesztéseket
+    report.company = { ...report.company, name: n, id: '' };
+    renderReportReview(report.preview);
+    toast('Cégnév felülírva: ' + n);
+  }
 
   function saveReport() {
     syncReview();
@@ -283,7 +344,8 @@ const App = (() => {
     const payload = {
       company_id: co.id || undefined, company_name: co.name, cui: co.cui || undefined,
       comments: cs.map((c) => ({
-        ...c,
+        text: c.text, sentiment: c.sentiment, comment_date: c.comment_date,
+        author: c.author, tags: c.tags || [], amount: c.amount, currency: c.currency, due_text: c.due_text,
         pay_signal: c.sentiment === 'positive' ? 'pays' : c.sentiment === 'negative' ? 'nonpay' : 'unknown',
       })),
     };
@@ -381,5 +443,5 @@ const App = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, analyzeReport, delComment, saveReport };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, analyzeReport, delComment, saveReport, useAiName };
 })();

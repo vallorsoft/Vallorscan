@@ -1,7 +1,7 @@
 // Reputáció-beküldés: képernyőképek → AI komment-kinyerés (preview) → mentés (commit).
 import crypto from 'node:crypto';
 import { db, now, uid, audit } from './db.js';
-import { extractCommentsFromImages } from './ai.js';
+import { extractCommentsFromImages, COMMENT_TAGS } from './ai.js';
 import { resolveCompany } from './dedup.js';
 import { stripDiacritics } from './normalize.js';
 import { broadcast } from './events.js';
@@ -44,8 +44,10 @@ export function commitReport(fields, userId) {
     const ins = db.prepare(`
       INSERT OR IGNORE INTO comments
         (id, company_id, report_id, author, text, sentiment, pay_signal,
+         tags, amount, currency, due_text,
          comment_date, date_text, dedup_key, created_by, created_at)
       VALUES (@id,@company_id,@report_id,@author,@text,@sentiment,@pay_signal,
+         @tags,@amount,@currency,@due_text,
          @comment_date,@date_text,@dedup_key,@created_by,@created_at)
     `);
     let inserted = 0;
@@ -53,10 +55,14 @@ export function commitReport(fields, userId) {
       const text = String(c.text || '').trim();
       if (!text) continue;
       const commentDate = c.comment_date || null;
+      const tags = Array.isArray(c.tags) ? c.tags.filter((t) => COMMENT_TAGS.includes(t)) : [];
       const r = ins.run({
         id: uid(), company_id: company.id, report_id: reportId,
         author: c.author?.trim() || null, text,
         sentiment: SENT(c.sentiment), pay_signal: PAY(c.pay_signal),
+        tags: tags.length ? JSON.stringify(tags) : null,
+        amount: numOrNull(c.amount), currency: c.currency?.trim() || null,
+        due_text: c.due_text?.trim() || null,
         comment_date: commentDate, date_text: c.date_text?.trim() || null,
         dedup_key: dedupKey(company.id, text, commentDate),
         created_by: userId, created_at: ts,
@@ -78,6 +84,7 @@ export function commitReport(fields, userId) {
 
 const SENT = (s) => (['positive', 'negative', 'neutral'].includes(s) ? s : 'neutral');
 const PAY = (s) => (['pays', 'nonpay', 'unknown'].includes(s) ? s : 'unknown');
+const numOrNull = (v) => { if (v == null || v === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 
 /** Duplikátum-kulcs: ugyanaz a komment (cég + normalizált szöveg + dátum) ne kerüljön be kétszer. */
 function dedupKey(companyId, text, date) {
