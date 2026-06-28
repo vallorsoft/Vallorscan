@@ -129,6 +129,40 @@ PORT=4000 DB_PATH=/data/vallorscan.sqlite \
 
 HTTPS-t tegyél elé (Caddy/Nginx) – a PWA telepítés és a Share Target HTTPS-t igényel.
 
+### Deploy Fly.io-ra (Dockerrel, perzisztens diszkkel)
+
+A repó tartalmaz `Dockerfile`-t és `fly.toml`-t. A Fly **ingyenes `*.fly.dev` aldomaint
++ automatikus HTTPS-t** ad (bankkártya szükséges; egy auto-stop 256MB-os gép + 1GB disk
+nagyon olcsó). Lépések:
+
+```bash
+# 1) flyctl telepítése + belépés
+curl -L https://fly.io/install.sh | sh
+fly auth login                      # vagy: fly auth signup
+
+# 2) app létrehozása (a név legyen egyedi!) – a fly.toml-t használja
+fly launch --copy-config --no-deploy --name vallorscan-egyedi --region fra
+
+# 3) perzisztens diszk a SQLite-nak (e nélkül elveszne az adat!)
+fly volumes create vallorscan_data --region fra --size 1 -a vallorscan-egyedi
+
+# 4) titkok (a superadmin jelszó és opcionálisan a Gemini kulcs)
+fly secrets set SUPERADMIN_PASSWORD='erős-jelszó' -a vallorscan-egyedi
+# fly secrets set GEMINI_API_KEY='...' -a vallorscan-egyedi
+
+# 5) deploy + megnyitás
+fly deploy -a vallorscan-egyedi
+fly open -a vallorscan-egyedi        # https://vallorscan-egyedi.fly.dev
+```
+
+Telefonon/PC-n a **bejelentkező képernyőn** a „Szerver cím" mezőbe írd a
+`https://vallorscan-egyedi.fly.dev` címet, és lépj be a superadmin emaillel + jelszóval
+(első belépéskor jelszócsere). A natív Android appban ugyanezt a címet add meg.
+
+> Egyetlen diszk = **egyetlen gép** fusson (`fly scale count 1`). Mindig-ébren működéshez
+> állítsd a `fly.toml`-ban `min_machines_running = 1`-re (gyorsabb, az SSE nem szakad meg),
+> tétlenkedő gép leállításával viszont olcsóbb (`= 0`, az appot kéréskor felébreszti).
+
 > ⚠️ **Fontos felhős hosting esetén (Render/Railway/Fly.io):** az adatbázis egyetlen
 > SQLite **fájl**. Ha a hoszt fájlrendszere efemer (pl. **Render free** webszolgáltatás),
 > az adat újraindításkor/deploykor **elveszik**. Köss hozzá **perzisztens diszket** (Render

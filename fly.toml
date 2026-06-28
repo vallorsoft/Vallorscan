@@ -1,0 +1,31 @@
+# Vallorscan – Fly.io konfiguráció.
+# FONTOS: az "app" név globálisan egyedi kell legyen – futtasd: `fly launch --copy-config`
+# vagy írd át lentebb egyedire (pl. vallorscan-<valami>).
+app = "vallorscan"
+primary_region = "fra"   # Frankfurt – közel Magyarországhoz
+
+[build]
+
+[env]
+  PORT = "8080"
+  DB_PATH = "/data/vallorscan.sqlite"
+  SUPERADMIN_EMAIL = "vallorsoft@gmail.com"
+  # A jelszót NE ide írd – titokként add meg:  fly secrets set SUPERADMIN_PASSWORD=...
+  # (Gemini kulcs is titokként:  fly secrets set GEMINI_API_KEY=...)
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"   # tétlenségkor leáll (spórolás); kéréskor felébred
+  auto_start_machines = true
+  min_machines_running = 0       # tedd 1-re, ha mindig ébren akarod (gyorsabb, valós idejű SSE)
+  processes = ["app"]
+
+# Perzisztens diszk a SQLite-nak – e nélkül deploykor elveszne az adat!
+[[mounts]]
+  source = "vallorscan_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

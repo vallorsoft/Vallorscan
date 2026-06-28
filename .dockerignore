@@ -1,0 +1,12 @@
+node_modules
+android
+.git
+.github
+data
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+.env
+capacitor.config.json
+test
