@@ -13,15 +13,15 @@ const companyAgg = `
     (SELECT MAX(p.created_at) FROM posts p WHERE p.company_id = c.id) AS last_post_at,
     (SELECT GROUP_CONCAT(DISTINCT p.problem_type) FROM posts p WHERE p.company_id = c.id) AS problem_types,
     (SELECT GROUP_CONCAT(plate_norm) FROM plates pl WHERE pl.company_id = c.id) AS plates,
-    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id) AS comment_count,
-    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='positive') AS pos_count,
-    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='negative') AS neg_count,
-    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='neutral') AS neu_count,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND (cm.excluded IS NULL OR cm.excluded = 0)) AS comment_count,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='positive' AND (cm.excluded IS NULL OR cm.excluded = 0)) AS pos_count,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='negative' AND (cm.excluded IS NULL OR cm.excluded = 0)) AS neg_count,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='neutral' AND (cm.excluded IS NULL OR cm.excluded = 0)) AS neu_count,
     (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='positive'
-       AND cm.comment_date >= date('now','-6 months')) AS recent_pos,
+       AND cm.comment_date >= date('now','-6 months') AND (cm.excluded IS NULL OR cm.excluded = 0)) AS recent_pos,
     (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='negative'
-       AND cm.comment_date >= date('now','-6 months')) AS recent_neg,
-    (SELECT MAX(comment_date) FROM comments cm WHERE cm.company_id = c.id) AS last_comment_at
+       AND cm.comment_date >= date('now','-6 months') AND (cm.excluded IS NULL OR cm.excluded = 0)) AS recent_neg,
+    (SELECT MAX(comment_date) FROM comments cm WHERE cm.company_id = c.id AND (cm.excluded IS NULL OR cm.excluded = 0)) AS last_comment_at
   FROM companies c
 `;
 

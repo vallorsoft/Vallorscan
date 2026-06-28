@@ -45,26 +45,42 @@ export function commitReport(fields, userId) {
       INSERT OR IGNORE INTO comments
         (id, company_id, report_id, author, text, text_hu, sentiment, pay_signal,
          tags, amount, currency, due_text,
-         comment_date, date_text, dedup_key, created_by, created_at)
+         comment_date, date_text, dedup_key, excluded, created_by, created_at)
       VALUES (@id,@company_id,@report_id,@author,@text,@text_hu,@sentiment,@pay_signal,
          @tags,@amount,@currency,@due_text,
-         @comment_date,@date_text,@dedup_key,@created_by,@created_at)
+         @comment_date,@date_text,@dedup_key,@excluded,@created_by,@created_at)
     `);
+    // "Más cégről" kommentek céljának feloldása (cache-elve, hogy ne keressünk újra).
+    const otherCache = new Map();
+    const resolveOther = (name) => {
+      const key = name.toLowerCase();
+      if (otherCache.has(key)) return otherCache.get(key);
+      const { company: oc } = resolveCompany({ name, cui: null, plates: [] }, userId);
+      otherCache.set(key, oc.id);
+      return oc.id;
+    };
     let inserted = 0;
     for (const c of comments) {
       const text = String(c.text || '').trim();
       if (!text) continue;
       const commentDate = c.comment_date || null;
       const tags = Array.isArray(c.tags) ? c.tags.filter((t) => COMMENT_TAGS.includes(t)) : [];
+      // Útválasztás: ha a komment másik cégről szól, oda mentjük (vagy itt hagyjuk, de kihagyva).
+      let targetId = company.id, excluded = 0;
+      if (c.about_other_company) {
+        const otherName = (c.other_company_name || '').trim();
+        if (otherName) { targetId = resolveOther(otherName); }   // a másik céghez mentjük
+        else { excluded = 1; }                                    // marad itt, de kihagyva az értékelésből
+      }
       const r = ins.run({
-        id: uid(), company_id: company.id, report_id: reportId,
+        id: uid(), company_id: targetId, report_id: reportId,
         author: c.author?.trim() || null, text, text_hu: c.text_hu?.trim() || null,
         sentiment: SENT(c.sentiment), pay_signal: PAY(c.pay_signal),
         tags: tags.length ? JSON.stringify(tags) : null,
         amount: numOrNull(c.amount), currency: c.currency?.trim() || null,
         due_text: c.due_text?.trim() || null,
         comment_date: commentDate, date_text: c.date_text?.trim() || null,
-        dedup_key: dedupKey(company.id, text, commentDate),
+        dedup_key: dedupKey(targetId, text, commentDate), excluded,
         created_by: userId, created_at: ts,
       });
       inserted += r.changes;
@@ -143,7 +159,8 @@ export async function generateOpinionFor(companyId) {
   const company = db.prepare('SELECT id, name FROM companies WHERE id = ?').get(companyId);
   if (!company) throw new Error('Ismeretlen cég.');
   const rows = db.prepare(`SELECT text, text_hu, sentiment, comment_date, amount, currency, tags
-    FROM comments WHERE company_id = ? ORDER BY COALESCE(comment_date, created_at) DESC LIMIT 100`).all(companyId);
+    FROM comments WHERE company_id = ? AND (excluded IS NULL OR excluded = 0)
+    ORDER BY COALESCE(comment_date, created_at) DESC LIMIT 100`).all(companyId);
   if (!rows.length) throw new Error('Ehhez a céghez még nincs vélemény.');
   const comments = rows.map((c) => ({ ...c, tags: c.tags ? JSON.parse(c.tags) : [] }));
   const opinion = await generateCompanyOpinion(company.name, comments);

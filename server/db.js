@@ -146,6 +146,7 @@ addColumnIfMissing('comments', 'tags', 'TEXT');       // JSON tömb: problémat�
 addColumnIfMissing('comments', 'amount', 'REAL');     // említett tartozás összege
 addColumnIfMissing('comments', 'currency', 'TEXT');   // pénznem
 addColumnIfMissing('comments', 'due_text', 'TEXT');   // számla/lejárat megnevezése
+addColumnIfMissing('comments', 'excluded', 'INTEGER'); // 1: más cégről szól, nem számít az értékelésbe
 
 export function now() {
   return new Date().toISOString();

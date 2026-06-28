@@ -118,7 +118,8 @@ const App = (() => {
       const v = c.verdict || 'unknown';
       const trend = c.trend === 'improving' ? '<span class="trend up">↗ javuló</span>'
         : c.trend === 'worsening' ? '<span class="trend down">↘ romló</span>' : '';
-      const comments = (c.comments || []).map((cm) => `
+      // Egy komment-elem megjelenítése (időrend-stílusban).
+      const commentItem = (cm) => `
         <div class="tl-item tl-${cm.sentiment}">
           <div class="tl-date">${SENT_ICON[cm.sentiment] || ''}
             ${cm.comment_date ? dateStr(cm.comment_date) : (cm.date_text ? esc(cm.date_text) : '')}
@@ -131,7 +132,11 @@ const App = (() => {
           ${cm.amount ? `<div class="debt">💶 ${money(cm.amount, cm.currency)}</div>` : ''}
           ${cm.due_text ? `<div class="muted">📅 ${esc(cm.due_text)}</div>` : ''}
           ${tagsHtml(parseTags(cm.tags))}
-        </div>`).join('');
+        </div>`;
+      // Külön a normál és a kihagyott (más cégről szóló) kommentek.
+      const allComments = c.comments || [];
+      const comments = allComments.filter((cm) => !cm.excluded).map(commentItem).join('');
+      const excludedComments = allComments.filter((cm) => cm.excluded).map(commentItem).join('');
       const posts = (c.posts || []).map((p) => `
         <div class="tl-item">
           <div class="tl-date">${dateStr(p.occurred_at || p.created_at)}
@@ -186,6 +191,7 @@ const App = (() => {
         ${aiSection}
         ${refsHtml}
         ${comments ? `<h3 class="muted sec">Kommentek (időrend)</h3><div class="timeline">${comments}</div>` : ''}
+        ${excludedComments ? `<h3 class="muted sec">Kihagyott kommentek (más cégről)</h3><div class="timeline">${excludedComments}</div>` : ''}
         ${posts ? `<h3 class="muted sec">Korábbi bejegyzések</h3><div class="timeline">${posts}</div>` : ''}
         ${!comments && !posts ? '<p class="muted">Még nincs adat ennél a cégnél.</p>' : ''}
         ${manageHtml}`;
@@ -620,6 +626,7 @@ const App = (() => {
         text: c.text || c.text_hu, text_hu: c.text_hu, sentiment: c.sentiment, comment_date: c.comment_date,
         author: c.author, tags: c.tags || [], amount: c.amount, currency: c.currency, due_text: c.due_text,
         pay_signal: c.sentiment === 'positive' ? 'pays' : c.sentiment === 'negative' ? 'nonpay' : 'unknown',
+        about_other_company: c.about_other_company, other_company_name: c.other_company_name,
       })),
     };
     // Jóváhagyás: a háttérben feldolgozott beküldés véglegesítése (a kommentek mentése + a beküldés törlése).
