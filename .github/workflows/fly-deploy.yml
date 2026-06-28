@@ -1,0 +1,66 @@
+name: Deploy to Fly.io
+
+# Kézzel indítható (Actions fül → Run workflow), és automatikusan fut push-ra.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/fly-io-deployment-setup-f7bybb
+    paths:
+      - 'server/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'fly.toml'
+      - '.github/workflows/fly-deploy.yml'
+
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+  FLY_APP: vallorscan          # ha foglalt a név, írd át itt ÉS a fly.toml-ban
+  FLY_REGION: fra              # volume régiója – egyezzen a fly.toml primary_region-nal
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    concurrency:
+      group: fly-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: flyctl telepítése
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: App létrehozása (ha még nincs)
+        run: |
+          if flyctl apps list | grep -qw "$FLY_APP"; then
+            echo "Az app már létezik: $FLY_APP"
+          else
+            echo "App létrehozása: $FLY_APP"
+            flyctl apps create "$FLY_APP" --org personal
+          fi
+
+      - name: Volume létrehozása a SQLite-nak (ha még nincs)
+        run: |
+          count=$(flyctl volumes list -a "$FLY_APP" --json | grep -c '"id"' || true)
+          if [ "$count" -eq 0 ]; then
+            echo "Volume létrehozása (vallorscan_data, 1GB, $FLY_REGION)"
+            flyctl volumes create vallorscan_data -a "$FLY_APP" --region "$FLY_REGION" --size 1 --yes
+          else
+            echo "A volume már létezik ($count db)"
+          fi
+
+      - name: Titkok beállítása (ha meg vannak adva)
+        run: |
+          if [ -n "${{ secrets.AUTH_TOKENS }}" ]; then
+            flyctl secrets set --stage -a "$FLY_APP" AUTH_TOKENS="${{ secrets.AUTH_TOKENS }}"
+          fi
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            flyctl secrets set --stage -a "$FLY_APP" GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
+          fi
+
+      - name: Deploy (CSAK 1 gép – SQLite miatt)
+        run: flyctl deploy --remote-only --ha=false
