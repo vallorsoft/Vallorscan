@@ -8,12 +8,17 @@ import { broadcast } from './events.js';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+/** A legutóbbi felhasználói javítások (few-shot tanuláshoz az AI-elemzésnél). */
+function recentCorrections(limit = 12) {
+  return db.prepare('SELECT text, ai_sentiment, user_sentiment FROM corrections ORDER BY created_at DESC LIMIT ?').all(limit);
+}
+
 /** Preview: AI elemzi a képeket, MENTÉS NÉLKÜL. Visszaadja a szerkeszthető kommenteket. */
 export async function previewReport({ images }) {
   if (!Array.isArray(images) || !images.length) {
     throw new Error('Legalább egy képernyőkép kell.');
   }
-  return extractCommentsFromImages(images, todayISO());
+  return extractCommentsFromImages(images, todayISO(), recentCorrections());
 }
 
 /**
@@ -115,7 +120,7 @@ export function queueReport({ company_id, company_name, cui, images }, userId) {
 /** A tényleges AI-feldolgozás a háttérben; a végén frissíti a reports sort. A képeket nem tároljuk. */
 async function processReport(id, images) {
   try {
-    const out = await extractCommentsFromImages(images, todayISO());
+    const out = await extractCommentsFromImages(images, todayISO(), recentCorrections());
     db.prepare("UPDATE reports SET status='pending_review', result=?, updated_at=? WHERE id=?")
       .run(JSON.stringify(out), now(), id);
   } catch (e) {
@@ -148,10 +153,27 @@ export function getReport(id) {
 /** Jóváhagyás: a (felhasználó által ellenőrzött) kommentek mentése, majd a beküldés törlése. */
 export function approveReport(id, fields, userId) {
   if (!db.prepare('SELECT id FROM reports WHERE id = ?').get(id)) throw new Error('Ismeretlen beküldés.');
+  saveCorrections(fields.corrections); // tanulás: a felhasználó átsorolásai
   const res = commitReport(fields, userId);
   db.prepare('DELETE FROM reports WHERE id = ?').run(id);
   broadcast('report.updated', { id });
   return res;
+}
+
+/** A felhasználó besorolás-javításainak mentése (later few-shot). Régieket nyesi. */
+function saveCorrections(list) {
+  if (!Array.isArray(list) || !list.length) return;
+  const ins = db.prepare('INSERT INTO corrections (id, text, ai_sentiment, user_sentiment, created_at) VALUES (?,?,?,?,?)');
+  const ts = now();
+  db.transaction(() => {
+    for (const c of list) {
+      const text = String(c.text || '').trim();
+      if (!text || !c.user_sentiment) continue;
+      ins.run(uid(), text.slice(0, 300), c.ai_sentiment || null, c.user_sentiment, ts);
+    }
+    // csak a legutóbbi 200 javítást tartjuk meg
+    db.prepare("DELETE FROM corrections WHERE id NOT IN (SELECT id FROM corrections ORDER BY created_at DESC LIMIT 200)").run();
+  })();
 }
 
 /** Cégre szabott AI-vélemény generálása a kommentekből, és eltárolása a cégnél. */

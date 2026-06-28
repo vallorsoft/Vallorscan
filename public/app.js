@@ -500,6 +500,8 @@ const App = (() => {
     let r; try { r = await api('/reports/' + id); } catch (e) { return toast('Hiba: ' + e.message); }
     if (r.status !== 'pending_review' || !r.result) return toast('Ez a beküldés még nincs kész vagy hibás.');
     report = { id, images: [], preview: r.result, company: { id: r.company_id || '', name: r.company_name || '', cui: r.cui || '' } };
+    // Az AI eredeti besorolásai (text → sentiment) – mentéskor ebből látszik, mit javítottál (tanulás).
+    report.aiSent = new Map((r.result.comments || []).map((c) => [c.text, c.sentiment]));
     sheet.classList.remove('hidden');
     renderReportReview(r.result);
   }
@@ -650,8 +652,14 @@ const App = (() => {
     if (!cs.length) return toast('Nincs menthető komment');
     const co = report.company;
     if (!co.id && !co.name) return toast('Adj meg egy céget');
+    // Tanulás: amit átsoroltál az AI-hoz képest, azt elküldjük példának a jövőre.
+    const aiSent = report.aiSent || new Map();
+    const corrections = cs
+      .filter((c) => aiSent.get(c.text) && aiSent.get(c.text) !== c.sentiment)
+      .map((c) => ({ text: c.text, ai_sentiment: aiSent.get(c.text), user_sentiment: c.sentiment }));
     const payload = {
       company_id: co.id || undefined, company_name: co.name, cui: co.cui || undefined,
+      corrections,
       comments: cs.map((c) => ({
         text: c.text || c.text_hu, text_hu: c.text_hu, sentiment: c.sentiment, comment_date: c.comment_date,
         author: c.author, tags: c.tags || [], amount: c.amount, currency: c.currency, due_text: c.due_text,

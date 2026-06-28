@@ -270,7 +270,14 @@ const COMMENT_SCHEMA = {
   required: ['comments', 'original_language'],
 };
 
-function commentSystemPrompt(today) {
+function correctionsBlock(corrections) {
+  if (!corrections || !corrections.length) return '';
+  const lines = corrections.slice(0, 12).map((c) =>
+    `- "${String(c.text || '').slice(0, 120)}" → helyes besorolás: ${c.user_sentiment}`).join('\n');
+  return `\n\nA FELHASZNÁLÓ KORÁBBI JAVÍTÁSAI – kövesd ezt a logikát a sentiment besorolásánál:\n${lines}\n`;
+}
+
+function commentSystemPrompt(today, corrections) {
   return `Te egy fuvarozói reputáció-elemző asszisztens vagy. A bemenet Facebook-képernyőképek
 egy fuvarozó/szállítmányozó cégről szóló posztról ÉS a hozzá tartozó kommentekről.
 A szöveg lehet román, magyar vagy angol nyelvű.
@@ -310,14 +317,14 @@ Olvasd ki a posztot és MINDEN kommentet a képekről. Minden egyes kommenthez a
 A poszt szövegéből próbáld kiolvasni az érintett cég nevét is (company_name).
 Ha egy komment egy táblázat/incidens-kártya képét tartalmazza (összeg, lejárat, státusz),
 abból is nyerd ki az összeget, lejáratot és a vonatkozó címkéket.
-CSAK a képeken ténylegesen látható tartalomra támaszkodj, ne találj ki kommentet.`;
+CSAK a képeken ténylegesen látható tartalomra támaszkodj, ne találj ki kommentet.${correctionsBlock(corrections)}`;
 }
 
 /**
  * Képernyőképekből kinyeri a kommenteket (csak Gemini kulccsal megy – a kép-OCR-hez
  * többmodellű AI kell). images: [{ mimeType, data(base64) }]. today: 'YYYY-MM-DD'.
  */
-export async function extractCommentsFromImages(images, today) {
+export async function extractCommentsFromImages(images, today, corrections = []) {
   if (!API_KEY) {
     const err = new Error('A képernyőkép-elemzéshez Gemini API-kulcs kell (GEMINI_API_KEY).');
     err.code = 'NO_AI_KEY';
@@ -328,7 +335,7 @@ export async function extractCommentsFromImages(images, today) {
     ...images.map((im) => ({ inlineData: { mimeType: im.mimeType || 'image/jpeg', data: im.data } })),
   ];
   const data = await geminiJSON({
-    systemInstruction: { parts: [{ text: commentSystemPrompt(today) }] },
+    systemInstruction: { parts: [{ text: commentSystemPrompt(today, corrections) }] },
     contents: [{ role: 'user', parts }],
     generationConfig: { responseMimeType: 'application/json', responseSchema: COMMENT_SCHEMA, temperature: 0 },
   }, 60000);

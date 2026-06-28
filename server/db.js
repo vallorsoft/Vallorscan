@@ -126,6 +126,17 @@ CREATE TABLE IF NOT EXISTS reports (
   updated_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_reports_status ON reports(status, created_at DESC);
+
+-- Felhasználói javítások (tanuláshoz): amikor a review-ban átsorolnak egy kommentet,
+-- eltároljuk, és a következő AI-elemzésnél példaként odaadjuk (few-shot).
+CREATE TABLE IF NOT EXISTS corrections (
+  id             TEXT PRIMARY KEY,
+  text           TEXT,
+  ai_sentiment   TEXT,
+  user_sentiment TEXT,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_corrections_created ON corrections(created_at DESC);
 `);
 
 // Szerver-újraindításkor a félbemaradt feldolgozásokat hibásra állítjuk (a képek már nincsenek meg).
