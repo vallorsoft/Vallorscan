@@ -25,6 +25,7 @@ const App = (() => {
   let acMatches = [];
   let companyRefs = [];
   let mergeMatches = [];
+  let manualVerdict = '';
   const view = document.getElementById('view');
 
   // ---- API ----
@@ -239,31 +240,110 @@ const App = (() => {
 
   function openCompose() {
     report = { images: [], preview: null, company: { id: '', name: '', cui: '' } };
-    acMatches = [];
+    acMatches = []; manualVerdict = '';
     sheet.classList.remove('hidden');
     document.getElementById('sheet-title').textContent = 'Új beküldés';
-    document.getElementById('sheet-body').innerHTML = `
-      <label>Cég (opcionális – írj 3+ betűt kereséshez, vagy az AI felismeri)</label>
-      <input class="f" id="r-company" placeholder="Cég neve" autocomplete="off" />
-      <input type="hidden" id="r-company-id" />
-      <div id="r-ac" class="ac-list"></div>
-      <input class="f" id="r-cui" style="margin-top:8px" placeholder="CUI (opcionális, új cégnél)" />
-      <label>Képernyőképek a posztról + kommentekről (max 5)</label>
-      <input type="file" id="r-files" accept="image/*" multiple style="display:none" />
-      <button type="button" class="btn btn-ghost" id="r-addbtn">📷 Képek hozzáadása</button>
-      <div id="r-thumbs" class="thumbs"></div>
-      <button class="btn btn-primary" id="r-analyze">📤 Feltöltés (a háttérben feldolgozza)</button>
-      <p class="muted" style="font-size:12px;margin-top:8px">Feltöltés után nyugodtan kiléphetsz – a feldolgozás a háttérben fut, és a 📥 „Megerősítésre vár" listában jelenik meg.</p>`;
-    // listeners
+    renderComposeBody('image');
+  }
+  function composeMode(mode) { renderComposeBody(mode); }
+
+  function attachCompanyAutocomplete() {
     let t;
     document.getElementById('r-company').addEventListener('input', (e) => {
       document.getElementById('r-company-id').value = ''; // gépelés = (esetleg) új cég
       clearTimeout(t); const q = e.target.value.trim();
       t = setTimeout(() => acSearch(q), 250);
     });
-    document.getElementById('r-addbtn').addEventListener('click', () => document.getElementById('r-files').click());
-    document.getElementById('r-files').addEventListener('change', handleFiles);
-    document.getElementById('r-analyze').addEventListener('click', queueUpload);
+  }
+
+  function renderComposeBody(mode) {
+    const seg = `<div class="seg">
+      <button class="seg-btn ${mode === 'image' ? 'active' : ''}" onclick="App.composeMode('image')">📷 Képből</button>
+      <button class="seg-btn ${mode === 'manual' ? 'active' : ''}" onclick="App.composeMode('manual')">✍️ Kézi</button>
+    </div>`;
+    const company = (hint) => `
+      <label>Cég ${hint}</label>
+      <input class="f" id="r-company" placeholder="Cég neve" autocomplete="off" />
+      <input type="hidden" id="r-company-id" />
+      <div id="r-ac" class="ac-list"></div>
+      <input class="f" id="r-cui" style="margin-top:8px" placeholder="CUI (opcionális, új cégnél)" />`;
+    const body = document.getElementById('sheet-body');
+    if (mode === 'manual') {
+      report.images = [];
+      body.innerHTML = seg + company('(írj 3+ betűt kereséshez)') + manualFormHtml();
+      attachCompanyAutocomplete();
+    } else {
+      body.innerHTML = seg + company('(opcionális – az AI is felismeri)') + `
+        <label>Képernyőképek a posztról + kommentekről (max 5)</label>
+        <input type="file" id="r-files" accept="image/*" multiple style="display:none" />
+        <button type="button" class="btn btn-ghost" id="r-addbtn">📷 Képek hozzáadása</button>
+        <div id="r-thumbs" class="thumbs"></div>
+        <button class="btn btn-primary" id="r-analyze">📤 Feltöltés (a háttérben feldolgozza)</button>
+        <p class="muted" style="font-size:12px;margin-top:8px">Feltöltés után nyugodtan kiléphetsz – a háttérben feldolgozza, és a 📥 listában jelenik meg.</p>`;
+      attachCompanyAutocomplete();
+      document.getElementById('r-addbtn').addEventListener('click', () => document.getElementById('r-files').click());
+      document.getElementById('r-files').addEventListener('change', handleFiles);
+      document.getElementById('r-analyze').addEventListener('click', queueUpload);
+      renderThumbs();
+    }
+  }
+
+  // ---- Kézi bevitel (saját tapasztalat) ----
+  function manualFormHtml() {
+    const chips = Object.keys(TAG_LABELS).map((k) =>
+      `<button type="button" class="tagchip" data-t="${k}" onclick="this.classList.toggle('on')">${TAG_LABELS[k]}</button>`).join('');
+    const exOpts = Object.entries(EXCHANGE_LABELS).map(([k, vL]) => `<option value="${k}">${vL}</option>`).join('');
+    return `
+      <label>Értékelés (a te tapasztalatod)</label>
+      <div class="verdict-pick" id="m-verdict">
+        <button type="button" class="vpick" data-v="positive" onclick="App.pickVerdict(this)">✅ Fizet</button>
+        <button type="button" class="vpick" data-v="neutral" onclick="App.pickVerdict(this)">⚠️ Semleges</button>
+        <button type="button" class="vpick" data-v="negative" onclick="App.pickVerdict(this)">⛔ Nem fizet</button>
+      </div>
+      <label>Címkék (pipáld, ami igaz)</label>
+      <div class="tagpick" id="m-tags">${chips}</div>
+      <div class="row2" style="margin-top:10px">
+        <input class="f" id="m-amount" inputmode="decimal" placeholder="összeg (opcionális)" />
+        <input class="f" id="m-cur" placeholder="pénznem" />
+      </div>
+      <label>Börze-kód (opcionális)</label>
+      <div class="ref-add">
+        <select class="f" id="m-ex">${exOpts}</select>
+        <input class="f" id="m-code" placeholder="azonosító / kód" />
+      </div>
+      <label>Saját tapasztalat / megjegyzés</label>
+      <textarea class="f" id="m-note" placeholder="pl. Fizet, de 10 nap késéssel"></textarea>
+      <button class="btn btn-primary" onclick="App.saveManual()">💾 Mentés</button>`;
+  }
+  function pickVerdict(btn) {
+    document.querySelectorAll('#m-verdict .vpick').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active'); manualVerdict = btn.dataset.v;
+  }
+  async function saveManual() {
+    const co = { id: val('r-company-id'), name: val('r-company'), cui: val('r-cui') };
+    if (!co.id && !co.name) return toast('Adj meg egy céget');
+    if (!manualVerdict) return toast('Válassz értékelést (Fizet / Semleges / Nem fizet)');
+    const tags = [...document.querySelectorAll('#m-tags .tagchip.on')].map((b) => b.dataset.t);
+    const note = val('m-note');
+    const vLabel = manualVerdict === 'positive' ? 'Fizet' : manualVerdict === 'negative' ? 'Nem fizet' : 'Semleges';
+    const text = note || `${vLabel}${tags.length ? ' – ' + tags.map((t) => TAG_LABELS[t]).join(', ') : ''}`;
+    const comment = {
+      text, text_hu: text, sentiment: manualVerdict,
+      pay_signal: manualVerdict === 'positive' ? 'pays' : manualVerdict === 'negative' ? 'nonpay' : 'unknown',
+      tags, amount: val('m-amount') || null, currency: val('m-cur') || null, due_text: null,
+      author: (state.config && state.config.user) || 'saját', comment_date: new Date().toISOString().slice(0, 10),
+    };
+    let res;
+    try {
+      res = await api('/reports/commit', { method: 'POST', body: JSON.stringify({
+        company_id: co.id || undefined, company_name: co.name, cui: co.cui || undefined, comments: [comment],
+      }) });
+    } catch (e) { return toast('Mentés sikertelen: ' + e.message); }
+    const code = val('m-code');
+    if (code && res.company && res.company.id) {
+      try { await api('/companies/' + res.company.id + '/refs', { method: 'POST', body: JSON.stringify({ exchange: val('m-ex'), ref_code: code }) }); } catch {}
+    }
+    toast('Mentve ✓'); closeSheet(); loadList();
   }
 
   async function acSearch(q) {
@@ -601,5 +681,5 @@ const App = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig, translateOld };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig, translateOld, composeMode, pickVerdict, saveManual };
 })();

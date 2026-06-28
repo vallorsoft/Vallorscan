@@ -1,5 +1,5 @@
 // Service worker – app-shell cache az offline működéshez.
-const CACHE = 'vallorscan-v7';
+const CACHE = 'vallorscan-v8';
 const SHELL = ['/', '/index.html', '/app.js', '/styles.css', '/manifest.webmanifest',
   '/icons/icon-192.png', '/icons/icon-512.png'];
 
