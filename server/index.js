@@ -15,7 +15,11 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true })); // Web Share Target POST-hoz
 
 const PORT = process.env.PORT || 4000;
+const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC = path.join(__dirname, '..', 'public');
+
+// --- Health check (Fly.io / load balancer figyeli, auth nélkül) ---
+app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 // --- Valós idejű események (auth a query token alapján is mehet EventSource-nál) ---
 app.get('/api/events', authMiddleware, sseHandler);
@@ -76,6 +80,6 @@ app.use('/api', api);
 app.use(express.static(PUBLIC));
 app.get('*', (req, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
 
-app.listen(PORT, () => {
-  console.log(`Vallorscan fut: http://localhost:${PORT}  (auth: ${authEnabled ? 'BE' : 'KI – csak teszthez'})`);
+app.listen(PORT, HOST, () => {
+  console.log(`Vallorscan fut: http://${HOST}:${PORT}  (auth: ${authEnabled ? 'BE' : 'KI – csak teszthez'})`);
 });
