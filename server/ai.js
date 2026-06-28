@@ -2,7 +2,68 @@
 import { normalizeCui, normalizePlate } from './normalize.js';
 
 const API_KEY = process.env.GEMINI_API_KEY || '';
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
+// Több ingyenes Gemini modell, sorrendben. Ha az egyik túlterhelt (503) vagy elfogyott
+// az ingyenes kerete (429), automatikusan a következőre váltunk. Env-ből felülírható
+// (GEMINI_MODELS=vesszővel; a régi GEMINI_MODEL is tiszteletben tartva, elsőként).
+const DEFAULT_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+const MODELS = (() => {
+  const fromEnv = (process.env.GEMINI_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const list = fromEnv.length ? fromEnv : [...DEFAULT_MODELS];
+  const single = (process.env.GEMINI_MODEL || '').trim();
+  if (single && !list.includes(single)) list.unshift(single);
+  return list;
+})();
+
+/** Egy konkrét modell hívása. Hibánál a HTTP státuszt is felteszi az errorra. */
+async function geminiCall(model, body, timeoutMs) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body), signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const err = new Error(`Gemini HTTP ${res.status}: ${await res.text()}`);
+      err.status = res.status;
+      throw err;
+    }
+    const json = await res.json();
+    const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!raw) throw new Error('Gemini: üres válasz');
+    return JSON.parse(raw);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** Átmeneti/keret-hiba? Ilyenkor érdemes a következő modellel próbálkozni. */
+function isRetryableModelError(e) {
+  if (e.status && [429, 500, 503].includes(e.status)) return true; // rate limit / kvóta / túlterhelt
+  const m = String(e.message || '').toUpperCase();
+  return e.name === 'AbortError'
+    || m.includes('OVERLOAD') || m.includes('UNAVAILABLE')
+    || m.includes('RESOURCE_EXHAUSTED') || m.includes('QUOTA');
+}
+
+/** Végigpróbálja a modelleket: ha egy nem elérhető / elfogyott a kerete, jön a következő. */
+async function geminiJSON(body, timeoutMs) {
+  let lastErr;
+  for (const model of MODELS) {
+    try {
+      const data = await geminiCall(model, body, timeoutMs);
+      if (model !== MODELS[0]) console.log(`Gemini: a(z) ${model} modellt használtuk (az előző nem volt elérhető).`);
+      return data;
+    } catch (e) {
+      lastErr = e;
+      if (!isRetryableModelError(e)) throw e; // pl. 400 (hibás kérés) → nincs értelme váltani
+      console.warn(`Gemini ${model} nem elérhető (${e.status || e.message}), próbálom a következő modellt…`);
+    }
+  }
+  throw lastErr;
+}
 
 const PROBLEM_TYPES = ['non_payment', 'late_payment', 'fraud', 'damage', 'dispute', 'other'];
 
@@ -53,34 +114,12 @@ export async function extract(text, url) {
   }
 }
 
-async function geminiExtract(input) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
-  const body = {
+function geminiExtract(input) {
+  return geminiJSON({
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: 'user', parts: [{ text: input }] }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: RESPONSE_SCHEMA,
-      temperature: 0,
-    },
-  };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 20000);
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${await res.text()}`);
-    const json = await res.json();
-    const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!raw) throw new Error('Gemini: üres válasz');
-    return JSON.parse(raw);
-  } finally {
-    clearTimeout(t);
-  }
+    generationConfig: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA, temperature: 0 },
+  }, 20000);
 }
 
 /** Az AI kimenet tisztítása + determinisztikus normalizálás (kódban, nem AI-ban). */
@@ -251,33 +290,12 @@ export async function extractCommentsFromImages(images, today) {
     { text: 'Elemezd a következő Facebook-képernyőképeket a fenti szabályok szerint.' },
     ...images.map((im) => ({ inlineData: { mimeType: im.mimeType || 'image/jpeg', data: im.data } })),
   ];
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
-  const body = {
+  const data = await geminiJSON({
     systemInstruction: { parts: [{ text: commentSystemPrompt(today) }] },
     contents: [{ role: 'user', parts }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: COMMENT_SCHEMA,
-      temperature: 0,
-    },
-  };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${await res.text()}`);
-    const json = await res.json();
-    const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!raw) throw new Error('Gemini: üres válasz');
-    return sanitizeComments(JSON.parse(raw));
-  } finally {
-    clearTimeout(t);
-  }
+    generationConfig: { responseMimeType: 'application/json', responseSchema: COMMENT_SCHEMA, temperature: 0 },
+  }, 60000);
+  return sanitizeComments(data);
 }
 
 function sanitizeComments(o) {
