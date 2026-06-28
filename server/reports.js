@@ -1,7 +1,7 @@
 // Reputáció-beküldés: képernyőképek → AI komment-kinyerés (preview) → mentés (commit).
 import crypto from 'node:crypto';
 import { db, now, uid, audit } from './db.js';
-import { extractCommentsFromImages, translateToHungarian, COMMENT_TAGS } from './ai.js';
+import { extractCommentsFromImages, translateToHungarian, generateCompanyOpinion, COMMENT_TAGS } from './ai.js';
 import { resolveCompany } from './dedup.js';
 import { stripDiacritics } from './normalize.js';
 import { broadcast } from './events.js';
@@ -136,6 +136,21 @@ export function approveReport(id, fields, userId) {
   db.prepare('DELETE FROM reports WHERE id = ?').run(id);
   broadcast('report.updated', { id });
   return res;
+}
+
+/** Cégre szabott AI-vélemény generálása a kommentekből, és eltárolása a cégnél. */
+export async function generateOpinionFor(companyId) {
+  const company = db.prepare('SELECT id, name FROM companies WHERE id = ?').get(companyId);
+  if (!company) throw new Error('Ismeretlen cég.');
+  const rows = db.prepare(`SELECT text, text_hu, sentiment, comment_date, amount, currency, tags
+    FROM comments WHERE company_id = ? ORDER BY COALESCE(comment_date, created_at) DESC LIMIT 100`).all(companyId);
+  if (!rows.length) throw new Error('Ehhez a céghez még nincs vélemény.');
+  const comments = rows.map((c) => ({ ...c, tags: c.tags ? JSON.parse(c.tags) : [] }));
+  const opinion = await generateCompanyOpinion(company.name, comments);
+  const count = db.prepare('SELECT COUNT(*) n FROM comments WHERE company_id = ?').get(companyId).n;
+  db.prepare('UPDATE companies SET ai_opinion = ?, ai_opinion_at = ?, ai_opinion_count = ? WHERE id = ?')
+    .run(JSON.stringify(opinion), now(), count, companyId);
+  return opinion;
 }
 
 /** A korábban mentett, fordítás nélküli kommentek magyarra fordítása (kötegelt). */

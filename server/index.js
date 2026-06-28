@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { authMiddleware, authEnabled } from './auth.js';
 import { sseHandler } from './events.js';
 import { previewShare, commitShare } from './posts.js';
-import { previewReport, commitReport, queueReport, listPendingReports, getReport, approveReport, discardReport, translateMissingComments } from './reports.js';
+import { previewReport, commitReport, queueReport, listPendingReports, getReport, approveReport, discardReport, translateMissingComments, generateOpinionFor } from './reports.js';
 import { listCompanies, getCompany, search, stats, addCompanyRef, removeCompanyRef, deleteComment, deleteCompany, renameCompany } from './queries.js';
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
@@ -123,6 +123,15 @@ api.get('/companies/:id', (req, res) => {
   const c = getCompany(req.params.id);
   if (!c) return res.status(404).json({ error: 'not found' });
   res.json(c);
+});
+
+// Cégre szabott AI-vélemény (vállaljunk-e fuvart) generálása a kommentekből.
+api.post('/companies/:id/opinion', async (req, res) => {
+  try { res.json(await generateOpinionFor(req.params.id)); }
+  catch (e) {
+    const code = e.code === 'NO_AI_KEY' ? 400 : 500;
+    res.status(code).json({ error: String(e.message || e), code: e.code });
+  }
 });
 
 api.post('/companies/:id/merge', (req, res) => {

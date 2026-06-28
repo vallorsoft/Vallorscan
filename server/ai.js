@@ -324,6 +324,55 @@ export async function extractCommentsFromImages(images, today) {
   return sanitizeComments(data);
 }
 
+const OPINION_SCHEMA = {
+  type: 'object',
+  properties: {
+    recommendation: { type: 'string', enum: ['take', 'caution', 'avoid'] },
+    headline: { type: 'string' },
+    reasoning: { type: 'string' },
+    what_to_expect: { type: 'string' },
+  },
+  required: ['recommendation', 'headline', 'reasoning', 'what_to_expect'],
+};
+
+/** Cégre szabott AI-vélemény: vállaljunk-e fuvart, és mire számítsunk. A kommentekből. */
+export async function generateCompanyOpinion(companyName, comments) {
+  if (!API_KEY) {
+    const err = new Error('Az AI-véleményhez Gemini API-kulcs kell (GEMINI_API_KEY).');
+    err.code = 'NO_AI_KEY';
+    throw err;
+  }
+  const lines = comments.map((c) =>
+    `- [${c.comment_date || '?'}] (${c.sentiment}) ${c.text_hu || c.text}`
+    + `${c.amount ? ` [${c.amount} ${c.currency || ''}]` : ''}`
+    + `${(c.tags && c.tags.length) ? ` {${c.tags.join(', ')}}` : ''}`).join('\n');
+  const prompt = `Te egy tapasztalt fuvarszervező tanácsadó vagy. Az alábbi vélemények egy
+"${companyName}" nevű fuvarozó/megbízó cégről szólnak (fuvarbörzei tapasztalatok, dátummal).
+
+Döntsd el konkrétan EZ a cég alapján: vállaljunk-e fuvart tőle?
+- recommendation: 'take' (igen, vállalható), 'caution' (csak óvatosan), 'avoid' (ne vállald).
+- headline: 1 rövid, tömör mondat a lényegről.
+- reasoning: MIÉRT – kifejezetten ERRE a cégre szabva, a véleményekből levezetve
+  (fizetési szokás, késés napokban, elérhetőség, csalás-gyanú, trend a friss vélemények felé).
+- what_to_expect: ha vállalod, MIRE SZÁMÍTS a gyakorlatban (pl. "fizet, de 10-30 nap késéssel",
+  "kérj előleget / CMR-t", "nehéz elérni"); ha 'avoid', mi a fő kockázat.
+
+Magyarul, tömören, gyakorlatiasan. A FRISSEBB vélemények nagyobb súllyal számítsanak.
+
+Vélemények:
+${lines}`;
+  const data = await geminiJSON({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: 'application/json', responseSchema: OPINION_SCHEMA, temperature: 0.2 },
+  }, 30000);
+  return {
+    recommendation: ['take', 'caution', 'avoid'].includes(data.recommendation) ? data.recommendation : 'caution',
+    headline: String(data.headline || '').trim(),
+    reasoning: String(data.reasoning || '').trim(),
+    what_to_expect: String(data.what_to_expect || '').trim(),
+  };
+}
+
 const TRANSLATE_SCHEMA = {
   type: 'object',
   properties: { translations: { type: 'array', items: { type: 'string' } } },

@@ -45,7 +45,11 @@ export function getCompany(id) {
   ).all(id);
   const plates = db.prepare('SELECT plate_norm, plate_raw FROM plates WHERE company_id = ?').all(id);
   const refs = db.prepare('SELECT exchange, ref_code FROM company_refs WHERE company_id = ? ORDER BY exchange').all(id);
-  return { ...decorate(company), posts, comments, plate_list: plates, refs };
+  const decorated = decorate(company);
+  let ai_opinion = null;
+  try { ai_opinion = company.ai_opinion ? JSON.parse(company.ai_opinion) : null; } catch {}
+  const opinion_stale = (decorated.comment_count || 0) !== (company.ai_opinion_count || 0);
+  return { ...decorated, ai_opinion, opinion_stale, posts, comments, plate_list: plates, refs };
 }
 
 /** Cég börze-azonosítójának hozzáadása (Bursa Transport, Timocom, ...). */

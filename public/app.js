@@ -151,6 +151,11 @@ const App = (() => {
         <input class="f" id="mg-q" placeholder="Másik cég keresése (3+ betű)" autocomplete="off" />
         <div id="mg-ac" class="ac-list"></div>
         <button class="btn btn-ghost danger" onclick="App.deleteCompany('${c.id}')">🗑 Cég törlése</button>`;
+      const aiSection = c.comment_count > 0 ? `
+        <h3 class="muted sec">🤖 AI vélemény – vállaljunk fuvart?</h3>
+        <div id="ai-opinion">${c.ai_opinion
+          ? opinionHtml(c.ai_opinion, c.id, c.opinion_stale)
+          : '<div class="opinion"><div class="spinner"></div><p class="muted">Vélemény készül…</p></div>'}</div>` : '';
       view.innerHTML = `
         <button class="btn btn-ghost" style="margin:0 0 12px;width:auto;padding:8px 14px" onclick="App.go('list')">← Vissza</button>
         <div class="cname" style="font-size:20px">${esc(c.name)}</div>
@@ -167,6 +172,7 @@ const App = (() => {
             <span class="muted">· ${c.comment_count} komment</span>
           </div>` : ''}
         </div>
+        ${aiSection}
         ${refsHtml}
         ${comments ? `<h3 class="muted sec">Kommentek (időrend)</h3><div class="timeline">${comments}</div>` : ''}
         ${posts ? `<h3 class="muted sec">Korábbi bejegyzések</h3><div class="timeline">${posts}</div>` : ''}
@@ -178,7 +184,34 @@ const App = (() => {
         clearTimeout(mt); const q = e.target.value.trim();
         mt = setTimeout(() => mergeSearch(c.id, q), 250);
       });
+      // Ha még nincs AI-vélemény, automatikusan legeneráljuk (a háttérben).
+      if (c.comment_count > 0 && !c.ai_opinion) requestOpinion(c.id);
     } catch { toast('Nem sikerült betölteni a céget'); }
+  }
+
+  // ---- AI cég-vélemény (vállaljunk-e fuvart) ----
+  const REC = {
+    take: { label: 'Vállalható', cls: 'v-pays', icon: '✅' },
+    caution: { label: 'Óvatosan', cls: 'v-mixed', icon: '⚠️' },
+    avoid: { label: 'Kerülendő', cls: 'v-nonpay', icon: '⛔' },
+  };
+  function opinionHtml(op, id, stale) {
+    const r = REC[op.recommendation] || REC.caution;
+    return `<div class="opinion">
+      <span class="vbadge ${r.cls} big">${r.icon} ${r.label}</span>
+      <p class="op-headline">${esc(op.headline)}</p>
+      <p><strong>Miért:</strong> ${esc(op.reasoning)}</p>
+      <p><strong>Mire számíts:</strong> ${esc(op.what_to_expect)}</p>
+      <button class="lang-toggle" onclick="App.requestOpinion('${id}')">🔄 Frissítés${stale ? ' – új vélemények érkeztek' : ''}</button>
+    </div>`;
+  }
+  async function requestOpinion(id) {
+    const box = document.getElementById('ai-opinion');
+    if (box) box.innerHTML = '<div class="opinion"><div class="spinner"></div><p class="muted">Vélemény készül… (pár másodperc)</p></div>';
+    let op;
+    try { op = await api('/companies/' + id + '/opinion', { method: 'POST' }); }
+    catch (e) { if (box) box.innerHTML = `<div class="review-flag">❌ AI vélemény nem készült: ${esc(e.message)}</div>`; return; }
+    if (box) box.innerHTML = opinionHtml(op, id, false);
   }
 
   // ---- Börze-azonosítók (Bursa Transport, Timocom, ...) ----
@@ -681,5 +714,5 @@ const App = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig, translateOld, composeMode, pickVerdict, saveManual };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig, translateOld, composeMode, pickVerdict, saveManual, requestOpinion };
 })();
