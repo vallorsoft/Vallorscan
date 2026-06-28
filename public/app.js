@@ -195,10 +195,14 @@ const App = (() => {
     caution: { label: 'Óvatosan', cls: 'v-mixed', icon: '⚠️' },
     avoid: { label: 'Kerülendő', cls: 'v-nonpay', icon: '⛔' },
   };
+  const CONF = { high: 'biztos', medium: 'valószínű', low: 'bizonytalan (kevés érdemi adat)' };
   function opinionHtml(op, id, stale) {
     const r = REC[op.recommendation] || REC.caution;
+    const conf = CONF[op.confidence] || CONF.medium;
+    const basis = op.relevant_count != null ? ` · ${op.relevant_count} érdemi vélemény alapján` : '';
     return `<div class="opinion">
       <span class="vbadge ${r.cls} big">${r.icon} ${r.label}</span>
+      <div class="op-conf muted">megbízhatóság: ${conf}${basis}</div>
       <p class="op-headline">${esc(op.headline)}</p>
       <p><strong>Miért:</strong> ${esc(op.reasoning)}</p>
       <p><strong>Mire számíts:</strong> ${esc(op.what_to_expect)}</p>

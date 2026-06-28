@@ -157,6 +157,7 @@ textarea.f { min-height: 90px; resize: vertical; }
 
 /* AI cég-vélemény doboz */
 .opinion { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.opinion .op-conf { font-size: 12px; margin-top: 8px; }
 .opinion .op-headline { font-weight: 700; font-size: 15px; margin: 10px 0 8px; }
 .opinion p { margin: 6px 0; font-size: 14px; line-height: 1.45; }
 .opinion .spinner { margin: 10px auto; }

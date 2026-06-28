@@ -328,11 +328,13 @@ const OPINION_SCHEMA = {
   type: 'object',
   properties: {
     recommendation: { type: 'string', enum: ['take', 'caution', 'avoid'] },
+    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+    relevant_count: { type: 'integer' },
     headline: { type: 'string' },
     reasoning: { type: 'string' },
     what_to_expect: { type: 'string' },
   },
-  required: ['recommendation', 'headline', 'reasoning', 'what_to_expect'],
+  required: ['recommendation', 'confidence', 'headline', 'reasoning', 'what_to_expect'],
 };
 
 /** Cégre szabott AI-vélemény: vállaljunk-e fuvart, és mire számítsunk. A kommentekből. */
@@ -349,10 +351,20 @@ export async function generateCompanyOpinion(companyName, comments) {
   const prompt = `Te egy tapasztalt fuvarszervező tanácsadó vagy. Az alábbi vélemények egy
 "${companyName}" nevű fuvarozó/megbízó cégről szólnak (fuvarbörzei tapasztalatok, dátummal).
 
+FONTOS – előbb SZŰRD a kommenteket:
+- HAGYD FIGYELMEN KÍVÜL az offtopic / nem releváns részeket: egymásnak válaszolgatás ami nem
+  a cég fizetéséről szól, viccelődés, megjelölés ("írj privátban"), köszönés, veszekedés.
+- Csak a cég FIZETÉSI / MEGBÍZHATÓSÁGI tapasztalatára vonatkozó kommentek számítsanak.
+- A közvetlen, SAJÁT tapasztalatot (konkrét összeg/dátum, "nekem nem fizetett") súlyozd a
+  legmagasabbra; a hallomást ("hallottam, hogy...") alacsonyabbra.
+
 Döntsd el konkrétan EZ a cég alapján: vállaljunk-e fuvart tőle?
-- recommendation: 'take' (igen, vállalható), 'caution' (csak óvatosan), 'avoid' (ne vállald).
-- headline: 1 rövid, tömör mondat a lényegről.
-- reasoning: MIÉRT – kifejezetten ERRE a cégre szabva, a véleményekből levezetve
+- recommendation: 'take' (vállalható), 'caution' (csak óvatosan), 'avoid' (ne vállald).
+- relevant_count: hány komment volt ténylegesen RELEVÁNS a fizetési megbízhatóságra.
+- confidence: 'high' (sok egybehangzó, friss, érdemi vélemény), 'medium' (vegyes vagy közepes),
+  'low' (kevés érdemi adat / ellentmondó). Ha kevés a releváns adat, legyen 'low'.
+- headline: 1 rövid, tömör mondat a lényegről (ha bizonytalan, ezt jelezd).
+- reasoning: MIÉRT – kifejezetten ERRE a cégre szabva, csak a releváns véleményekből levezetve
   (fizetési szokás, késés napokban, elérhetőség, csalás-gyanú, trend a friss vélemények felé).
 - what_to_expect: ha vállalod, MIRE SZÁMÍTS a gyakorlatban (pl. "fizet, de 10-30 nap késéssel",
   "kérj előleget / CMR-t", "nehéz elérni"); ha 'avoid', mi a fő kockázat.
@@ -367,6 +379,8 @@ ${lines}`;
   }, 30000);
   return {
     recommendation: ['take', 'caution', 'avoid'].includes(data.recommendation) ? data.recommendation : 'caution',
+    confidence: ['high', 'medium', 'low'].includes(data.confidence) ? data.confidence : 'medium',
+    relevant_count: numOrNull(data.relevant_count),
     headline: String(data.headline || '').trim(),
     reasoning: String(data.reasoning || '').trim(),
     what_to_expect: String(data.what_to_expect || '').trim(),
