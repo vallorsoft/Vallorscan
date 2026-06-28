@@ -1,7 +1,7 @@
 // Service worker – app-shell cache az offline működéshez.
-const CACHE = 'vallorscan-v1';
-const SHELL = ['/', '/index.html', '/app.js', '/styles.css', '/manifest.webmanifest',
-  '/icons/icon-192.png', '/icons/icon-512.png'];
+const CACHE = 'vallorscan-v2';
+const SHELL = ['/', '/index.html', '/app.js', '/store.js', '/login.js', '/users.js',
+  '/styles.css', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

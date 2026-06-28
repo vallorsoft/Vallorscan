@@ -2,12 +2,17 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { authMiddleware, authEnabled } from './auth.js';
+import { authMiddleware, requireRole, tokenFromReq } from './auth.js';
 import { sseHandler } from './events.js';
 import { previewShare, commitShare } from './posts.js';
 import { listCompanies, getCompany, search, stats } from './queries.js';
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
+import { syncSince } from './sync.js';
+import {
+  bootstrapSuperadmin, login, logout, changePassword,
+  listUsers, createUser, updateUser, resetCode, deleteUser,
+} from './users.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -18,7 +23,7 @@ const app = express();
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Headers', 'authorization, content-type');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.header('Vary', 'Origin');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -42,11 +47,55 @@ app.post('/share-target', (req, res) => {
   res.redirect(303, `/?${qs}`);
 });
 
-// --- API ---
+// --- Publikus auth: bejelentkezés (még nem kell munkamenet) ---
+const pub = express.Router();
+pub.post('/auth/login', (req, res) => {
+  try {
+    const { email, secret } = req.body || {};
+    res.json(login(email, secret)); // { token, user }
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+app.use('/api', pub);
+
+// --- API (munkamenet kötelező) ---
 const api = express.Router();
 api.use(authMiddleware);
 
-api.get('/config', (req, res) => res.json({ problem_types: PROBLEM_TYPES, auth: authEnabled, user: req.user }));
+// Auth – belépés utáni műveletek.
+api.get('/auth/me', (req, res) => res.json({ user: req.user }));
+api.post('/auth/logout', (req, res) => { logout(tokenFromReq(req)); res.json({ ok: true }); });
+api.post('/auth/change-password', (req, res) => {
+  try {
+    const user = changePassword(req.user.id, req.body.new_password);
+    res.json({ user });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// Felhasználó-kezelés (superadmin/admin).
+api.get('/users', requireRole('superadmin', 'admin'), (req, res) => {
+  res.json({ users: listUsers() });
+});
+api.post('/users', requireRole('superadmin', 'admin'), (req, res) => {
+  try { res.json(createUser(req.body, req.user)); } // { user, code }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+api.patch('/users/:id', requireRole('superadmin', 'admin'), (req, res) => {
+  try { res.json({ user: updateUser(req.params.id, req.body, req.user) }); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+api.post('/users/:id/reset-code', requireRole('superadmin', 'admin'), (req, res) => {
+  try { res.json(resetCode(req.params.id, req.user)); } // { code }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+api.delete('/users/:id', requireRole('superadmin', 'admin'), (req, res) => {
+  try { res.json(deleteUser(req.params.id, req.user)); } // { ok }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// Inkrementális szinkron.
+api.get('/sync', (req, res) => res.json(syncSince(req.query.since)));
+
+api.get('/config', (req, res) => res.json({ problem_types: PROBLEM_TYPES, user: req.user }));
 api.get('/stats', (req, res) => res.json(stats()));
 
 api.post('/share/preview', async (req, res) => {
@@ -59,7 +108,7 @@ api.post('/share/preview', async (req, res) => {
 
 api.post('/share/commit', (req, res) => {
   try {
-    const result = commitShare(req.body, req.user);
+    const result = commitShare(req.body, req.user.id);
     res.json(result);
   } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
 });
@@ -76,7 +125,7 @@ api.get('/companies/:id', (req, res) => {
 
 api.post('/companies/:id/merge', (req, res) => {
   try {
-    mergeCompanies(req.params.id, req.body.source_id, req.user);
+    mergeCompanies(req.params.id, req.body.source_id, req.user.id);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: String(e.message || e) }); }
 });
@@ -89,6 +138,8 @@ app.use('/api', api);
 app.use(express.static(PUBLIC));
 app.get('*', (req, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
 
+bootstrapSuperadmin(); // induláskor: superadmin biztosítása
+
 app.listen(PORT, () => {
-  console.log(`Vallorscan fut: http://localhost:${PORT}  (auth: ${authEnabled ? 'BE' : 'KI – csak teszthez'})`);
+  console.log(`Vallorscan fut: http://localhost:${PORT}`);
 });

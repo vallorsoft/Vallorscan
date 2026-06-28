@@ -80,6 +80,32 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail     TEXT,
   created_at TEXT NOT NULL
 );
+
+-- Felhasználók: szerepkör, jelszó-hash, meghívókód-hash.
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,         -- store lowercased
+  phone TEXT,
+  display_name TEXT,
+  role TEXT NOT NULL DEFAULT 'user',  -- 'superadmin' | 'admin' | 'user'
+  password_hash TEXT,                 -- null until set
+  invite_code_hash TEXT,             -- null after used
+  status TEXT NOT NULL DEFAULT 'invited', -- 'invited' | 'active' | 'disabled'
+  must_change_password INTEGER NOT NULL DEFAULT 0,
+  last_login_at TEXT,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Munkamenetek: a nyers token sha256 hash-e a kulcs.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,        -- sha256 hex of the raw token
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
 `);
 
 export function now() {

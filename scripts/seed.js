@@ -1,6 +1,9 @@
 // Demó adat betöltése – valós jellegű (RO/HU) bejegyzések a dedup és keresés teszteléséhez.
 import { commitShare } from '../server/posts.js';
 import { extract } from '../server/ai.js';
+import { bootstrapSuperadmin } from '../server/users.js';
+
+bootstrapSuperadmin(); // a seed is biztosítson superadmint
 
 const SAMPLES = [
   { text: 'Atentie! Transport Marfa Rapid SRL, CUI RO12345678, masina B 123 ABC nu plateste de 45 zile. Datorie 8500 RON.', url: 'https://facebook.com/groups/fuvar/posts/1' },

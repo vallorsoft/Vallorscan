@@ -8,17 +8,28 @@ const App = (() => {
   let state = { view: 'list', filter: '', q: '', config: null };
   const view = document.getElementById('view');
 
-  // ---- API ----
+  // ---- API / közös runtime (window.VS) ----
   function token() { return localStorage.getItem('vs_token') || ''; }
   function base() { return localStorage.getItem('vs_server') || ''; }
+  function setToken(t) { localStorage.setItem('vs_token', t || ''); }
+  function setBase(b) { localStorage.setItem('vs_server', b || ''); }
   async function api(path, opts = {}) {
     const headers = { 'content-type': 'application/json', ...(opts.headers || {}) };
     const t = token(); if (t) headers.authorization = `Bearer ${t}`;
     const res = await fetch(base() + '/api' + path, { ...opts, headers });
-    if (res.status === 401) { toast('Belépés szükséges – nyisd meg a ⚙ Beállításokat'); throw new Error('401'); }
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json();
+    let body;
+    if ((res.headers.get('content-type') || '').includes('application/json')) {
+      try { body = await res.json(); } catch {}
+    }
+    if (!res.ok) {
+      const err = new Error((body && body.error) || ('HTTP ' + res.status));
+      err.status = res.status; err.body = body;
+      throw err;
+    }
+    return body;
   }
+  // Megosztott runtime a login.js / users.js / store.js moduloknak.
+  window.VS = { base, token, setToken, setBase, api, toast, esc, currentUser: null };
 
   // ---- Segédek ----
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -65,9 +76,18 @@ const App = (() => {
   async function loadList() {
     state.view = 'list';
     try {
-      const r = state.q ? await api('/search?q=' + encodeURIComponent(state.q)) : { companies: await api('/companies') };
-      renderList(r.companies);
-    } catch { renderList([]); }
+      let companies;
+      if (state.q) {
+        companies = (await api('/search?q=' + encodeURIComponent(state.q))).companies;
+      } else {
+        companies = await api('/companies');
+        Store.replaceCompanies(companies); // offline cache frissítése
+      }
+      renderList(companies);
+    } catch (e) {
+      if (e.status === 401) { setToken(''); window.VS.currentUser = null; return Login.show(onLoginSuccess); }
+      renderList(await Store.getCompanies()); // offline → helyi cache
+    }
   }
 
   // ---- Render: cég idővonal ----
@@ -75,6 +95,16 @@ const App = (() => {
     state.view = 'company';
     try {
       const c = await api('/companies/' + id);
+      Store.putCompany(c); // offline cache
+      renderCompany(c);
+    } catch (e) {
+      if (e.status === 401) { setToken(''); window.VS.currentUser = null; return Login.show(onLoginSuccess); }
+      const c = await Store.getCompany(id);
+      if (c) renderCompany(c); else toast('Nem sikerült betölteni a céget (offline)');
+    }
+  }
+
+  function renderCompany(c) {
       const items = (c.posts || []).map((p) => `
         <div class="tl-item">
           <div class="tl-date">${dateStr(p.occurred_at || p.created_at)}
@@ -102,7 +132,6 @@ const App = (() => {
         </div>
         <h3 class="muted" style="font-size:14px">Előzmény (időrend)</h3>
         <div class="timeline">${items || '<p class="muted">Nincs bejegyzés.</p>'}</div>`;
-    } catch { toast('Nem sikerült betölteni a céget'); }
   }
 
   // ---- Megosztás / új bejegyzés (review sheet) ----
@@ -224,32 +253,44 @@ const App = (() => {
     dot.title = online ? (n ? `${n} szinkronra vár` : 'online') : 'offline';
     if (online) Outbox.flush();
   }
+  let sse = null;
   function connectSSE() {
     if (!window.EventSource) return;
+    if (sse) { try { sse.close(); } catch {} }
     const t = token();
-    const es = new EventSource(base() + '/api/events' + (t ? `?token=${encodeURIComponent(t)}` : ''));
-    es.addEventListener('post.created', () => { if (state.view === 'list') loadList(); });
-    es.onerror = () => {}; // EventSource automatikusan újracsatlakozik
+    sse = new EventSource(base() + '/api/events' + (t ? `?token=${encodeURIComponent(t)}` : ''));
+    // Más eszköz mentett → szinkronizáljuk a helyi cache-t, és frissítjük a listát.
+    sse.addEventListener('post.created', () => {
+      Store.sync().then(() => { if (state.view === 'list') loadList(); }).catch(() => {});
+    });
+    sse.onerror = () => {}; // EventSource automatikusan újracsatlakozik
   }
 
   // ---- Beállítások ----
   function settings() {
     state.view = 'settings';
+    const u = window.VS.currentUser;
+    const isAdmin = u && (u.role === 'superadmin' || u.role === 'admin');
+    const roleLabel = u ? ({ superadmin: 'Superadmin', admin: 'Admin', user: 'Felhasználó' }[u.role] || u.role) : '';
     view.innerHTML = `
       <h3>Beállítások</h3>
+      ${u ? `<div class="card" style="cursor:default">
+          <div class="cname">${esc(u.display_name || u.email)}</div>
+          <div class="meta"><span class="pill">${esc(u.email)}</span><span class="badge b-other">${esc(roleLabel)}</span></div>
+        </div>` : ''}
       <label>Szerver cím (üres = ez a kiszolgáló)</label>
       <input class="f" id="s-server" placeholder="https://szerver.example.com" value="${esc(base())}" />
-      <label>Belépési token</label>
-      <input class="f" id="s-token" placeholder="token" value="${esc(token())}" />
       <button class="btn btn-primary" onclick="App.saveSettings()">Mentés</button>
+      ${isAdmin ? `<button class="btn btn-ghost" onclick="App.openUsers()">👥 Felhasználók kezelése</button>` : ''}
+      <button class="btn btn-ghost" onclick="App.logout()">Kijelentkezés</button>
       <button class="btn btn-ghost" onclick="App.go('list')">Vissza</button>
-      <p class="muted" style="margin-top:16px;font-size:13px">Tipp: telepítsd kezdőképernyőre (Hozzáadás a kezdőképernyőhöz), majd a Facebookban „Megosztás → Vallorscan”.</p>`;
+      <p class="muted" style="margin-top:16px;font-size:13px">Tipp: a Facebookban „Megosztás → Vallorscan”.</p>`;
   }
   function saveSettings() {
-    localStorage.setItem('vs_server', val('s-server'));
-    localStorage.setItem('vs_token', val('s-token'));
-    toast('Mentve'); go('list');
+    setBase(val('s-server'));
+    toast('Mentve'); afterAuth(); go('list');
   }
+  function openUsers() { if (window.Users) window.Users.show(); else toast('A felhasználókezelő nem érhető el'); }
 
   // ---- Router ----
   function go(v) {
@@ -299,9 +340,31 @@ const App = (() => {
     }
   }
 
+  // ---- Auth-kapu ----
+  async function ensureAuth() {
+    if (!token()) return false;
+    try { const r = await api('/auth/me'); window.VS.currentUser = r.user; return true; }
+    catch (e) {
+      if (e.status === 401) { setToken(''); window.VS.currentUser = null; return false; }
+      return true; // hálózati hiba (offline) – engedjük a cache-elt offline használatot
+    }
+  }
+  function onLoginSuccess(user) { window.VS.currentUser = user; afterAuth(); }
+  async function afterAuth() {
+    try { state.config = await api('/config'); } catch {}
+    updateNet(); connectSSE(); loadList(); handleSharedParam(); initNativeShare();
+    Store.sync().then((r) => { if (r.updated) loadList(); }).catch(() => {});
+  }
+  async function logout() {
+    try { await api('/auth/logout', { method: 'POST' }); } catch {}
+    setToken(''); window.VS.currentUser = null;
+    try { await Store.clear(); } catch {}
+    if (sse) { try { sse.close(); } catch {} sse = null; }
+    Login.show(onLoginSuccess);
+  }
+
   // ---- Init ----
   async function init() {
-    try { state.config = await api('/config'); } catch {}
     // keresés (debounce)
     let t;
     document.getElementById('q').addEventListener('input', (e) => {
@@ -315,13 +378,17 @@ const App = (() => {
     });
     window.addEventListener('online', updateNet);
     window.addEventListener('offline', updateNet);
-    updateNet(); connectSSE(); loadList(); handleSharedParam(); initNativeShare();
     // Service worker csak a böngészős/PWA módban kell (natív appban nincs rá szükség).
     if (!isNative() && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-    // Natív appban a szerver címét kötelező megadni (nincs azonos eredetű kiszolgáló).
-    if (isNative() && !base()) { toast('Add meg a szerver címét a ⚙ Beállításokban'); settings(); }
+
+    await Store.init();
+    renderList(await Store.getCompanies()); // azonnali offline lista a cache-ből
+
+    // Belépés kötelező: érvényes munkamenet kell (offline a cache-ből dolgozunk).
+    if (await ensureAuth()) afterAuth();
+    else Login.show(onLoginSuccess);
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, runPreview, commit, useCompany, closeSheet, saveSettings };
+  return { go, openCompany, openCompose, runPreview, commit, useCompany, closeSheet, saveSettings, openUsers, logout };
 })();

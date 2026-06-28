@@ -24,7 +24,10 @@ központi adatbázis + **Gemini** AI (kulcs nélkül regex-fallbackkel) + valós
 - 🔍 **Univerzális keresés** – cégnév, CUI, rendszám és kulcsszó (full-text) egy mezőből.
 - 🕒 **Cég-idővonal** – egy céghez tartozó összes bejegyzés időrendben.
 - 📡 **Valós idejű szinkron** – minden telefon azonnal frissül (SSE).
-- ✈️ **Offline-first** – internet nélkül is működik; net visszatértekor automatikus szinkron.
+- ✈️ **Offline-first** – helyi tárolás (IndexedDB), internet nélkül is működik; net
+  visszatértekor automatikus szinkron a központi szerverrel és a többi eszközzel.
+- 🔐 **Bejelentkezés + felhasználókezelés** – superadmin meghívókódot generál a
+  kollégáknak (email + telefon), szerkeszthető jogosultság, titkosított jelszó/kód.
 
 ---
 
@@ -107,12 +110,10 @@ GEMINI_MODEL=gemini-2.5-flash
 A séma egyetlen szerverre + egy SQLite fájlra épül, ami minden klienst kiszolgál.
 
 1. Telepítsd a szervert egy elérhető gépre/VPS-re (lásd lent).
-2. Állíts be belépési tokeneket a `.env`-ben:
-   ```
-   AUTH_TOKENS=iroda:titok1,sofor1:titok2,sofor2:titok3
-   ```
-3. Minden telefonon a **⚙ Beállítások**-nál add meg a szerver címét és a sajat tokent.
-4. A bejegyzések valós időben megjelennek minden készüléken.
+2. Az **első indításkor automatikusan létrejön egy superadmin** (lásd „Bejelentkezés”).
+3. Minden telefonon/PC-n a **bejelentkező képernyőn** add meg a szerver címét, majd lépj be.
+4. A bejegyzések valós időben megjelennek minden készüléken (SSE), és **offline is**
+   elérhetők (helyi cache); net visszatértekor automatikus szinkron.
 
 > Nagyobb terheléshez / több tízezer bejegyzéshez a SQLite réteg gond nélkül bírja
 > (WAL mód, FTS5 index). Ha később felhős, valódi offline-first sync kell, a réteg
@@ -122,10 +123,18 @@ A séma egyetlen szerverre + egy SQLite fájlra épül, ami minden klienst kiszo
 
 ```bash
 # bármely Node-hostingon (VPS, Render, Fly.io, Railway):
-PORT=4000 DB_PATH=/data/vallorscan.sqlite AUTH_TOKENS="iroda:..." node server/index.js
+PORT=4000 DB_PATH=/data/vallorscan.sqlite \
+  SUPERADMIN_EMAIL=te@example.com node server/index.js
 ```
 
 HTTPS-t tegyél elé (Caddy/Nginx) – a PWA telepítés és a Share Target HTTPS-t igényel.
+
+> ⚠️ **Fontos felhős hosting esetén (Render/Railway/Fly.io):** az adatbázis egyetlen
+> SQLite **fájl**. Ha a hoszt fájlrendszere efemer (pl. **Render free** webszolgáltatás),
+> az adat újraindításkor/deploykor **elveszik**. Köss hozzá **perzisztens diszket** (Render
+> „Disk”, Railway/Fly volume), és a `DB_PATH` arra a diszkre mutasson. A free Render emellett
+> **alvó állapotba megy** inaktivitáskor (lassú első kérés, az SSE megszakad) – tartós
+> használatra fizetős „Starter” terv + disk ajánlott.
 
 ---
 
@@ -139,6 +148,8 @@ HTTPS-t tegyél elé (Caddy/Nginx) – a PWA telepítés és a Share Target HTTP
 | `posts` | bejegyzések (idővonal, `content_hash` egyedi → dedup) |
 | `posts_fts` | FTS5 full-text index a kulcsszó-kereséshez |
 | `audit_log` | ki, mit, mikor (összevonás, létrehozás) |
+| `users` | felhasználók (email, szerep, jelszó-hash, meghívókód-hash) |
+| `sessions` | belépési munkamenetek (token-hash, lejárat) |
 
 ## Duplikáció-kezelés
 
@@ -147,6 +158,35 @@ HTTPS-t tegyél elé (Caddy/Nginx) – a PWA telepítés és a Share Target HTTP
 - **Cég:** 1) CUI egyezés (automatikus) → 2) rendszám egyezés (automatikus) →
   3) erős név-hasonlóság (automatikus) → gyengébbnél **javaslat** kézi összevonáshoz
   (`POST /api/companies/:id/merge`).
+
+---
+
+## Bejelentkezés és felhasználók
+
+Zárt, **session-alapú** belépés. A jelszavakat és a meghívókódokat **titkosítva**
+(`scrypt` hash, egyedi sóval) tároljuk – sosem nyersen.
+
+- **Superadmin:** az első indításkor automatikusan létrejön. Email a
+  `SUPERADMIN_EMAIL`-ből (alapértelmezett `vallorsoft@gmail.com`), jelszó a
+  `SUPERADMIN_PASSWORD`-ből, vagy ha üres, **generált jelszót ír a szerver konzoljára**.
+  Első belépéskor **kötelező a jelszócsere**.
+- **Új kolléga meghívása:** a superadmin/admin a **👥 Felhasználók kezelése** képernyőn
+  megadja a kolléga **emailjét és telefonszámát** → a rendszer **egyszeri kódot** generál.
+  Ezt a kódot (és az emailt) átadod a kollégának: ezzel lép be először, majd **saját
+  jelszót állít be**. A kód csak egyszer jelenik meg.
+- **Jogosultságok:** a superadmin **szerkesztheti** a kolléga szerepkörét
+  (felhasználó/admin), **letilthatja**, **új kódot** generálhat neki, vagy **törölheti**.
+- **Szerepkörök:** `superadmin` (mindenhez + admin-kezelés), `admin` (kolléga-kezelés),
+  `user` (sima használat).
+
+| Auth útvonal | Leírás |
+| --- | --- |
+| `POST /api/auth/login` | belépés email + jelszó **vagy** meghívókód |
+| `POST /api/auth/change-password` | jelszó beállítása/cseréje |
+| `GET /api/auth/me` | aktuális felhasználó |
+| `POST /api/auth/logout` | kijelentkezés |
+| `GET/POST /api/users`, `PATCH/DELETE /api/users/:id`, `POST /api/users/:id/reset-code` | felhasználó-kezelés (superadmin/admin) |
+| `GET /api/sync?since=` | inkrementális szinkron az offline cache-hez |
 
 ---
 
@@ -167,7 +207,9 @@ HTTPS-t tegyél elé (Caddy/Nginx) – a PWA telepítés és a Share Target HTTP
 
 ## Biztonság
 
-- Zárt, **token-alapú** belépés (Bearer). Üres `AUTH_TOKENS` = nyitott mód, csak helyi teszthez.
+- Zárt, **session-alapú** belépés (Bearer token a munkamenethez).
+- Jelszavak és meghívókódok **`scrypt` hash**-sel, egyedi sóval titkosítva tárolva.
+- Szerepkör-alapú jogosultság (superadmin / admin / user).
 - API-kulcsok kizárólag szerveroldalon.
 - Audit napló minden módosításhoz.
 - ⚠️ **Jogi megjegyzés:** a rendszer cégekre vonatkozó negatív adatokat tárol →
