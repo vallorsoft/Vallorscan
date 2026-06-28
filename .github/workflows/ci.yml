@@ -1,0 +1,40 @@
+name: CI
+
+# Minden push és PR esetén lefut: szintaxis-ellenőrzés, tesztek, és egy
+# valódi szerver-indítás (boot smoke test) – így a hibák a deploy ELŐTT kiderülnek.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node 20 beállítása
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Függőségek telepítése
+        run: npm ci
+
+      - name: Szintaxis-ellenőrzés (minden JS)
+        run: |
+          for f in server/*.js public/app.js public/sw.js scripts/*.js; do
+            echo "check $f"; node --check "$f";
+          done
+
+      - name: Tesztek
+        run: npm test
+
+      - name: Szerver-indítás füstteszt
+        run: |
+          PORT=4999 DB_PATH=/tmp/ci.sqlite node server/index.js &
+          PID=$!
+          sleep 2
+          echo "--- /healthz ---"; curl -fsS http://localhost:4999/healthz
+          echo; echo "--- /.well-known/assetlinks.json ---"; curl -fsS http://localhost:4999/.well-known/assetlinks.json
+          kill $PID
