@@ -95,8 +95,18 @@ const App = (() => {
     state.view = 'list';
     try {
       const r = state.q ? await api('/search?q=' + encodeURIComponent(state.q)) : { companies: await api('/companies') };
+      if (!state.q) localStorage.setItem('vs_cache_list', JSON.stringify(r.companies)); // offline mentés
       renderList(r.companies);
-    } catch { renderList([]); }
+    } catch {
+      // Offline: a legutóbb letöltött (telefonra mentett) céglistát mutatjuk.
+      let cached = null;
+      try { cached = JSON.parse(localStorage.getItem('vs_cache_list') || 'null'); } catch {}
+      if (cached && cached.length) {
+        const q = normName(state.q);
+        renderList(q ? cached.filter((c) => normName(c.name).includes(q)) : cached);
+        toast('Offline – mentett adat');
+      } else renderList([]);
+    }
   }
 
   // Mentés után: ha létezik nagyon hasonló nevű MÁSIK cég, jelezzük (összevonáshoz).
@@ -113,8 +123,16 @@ const App = (() => {
   // ---- Render: cég részletek (értékelés + komment-idővonal) ----
   async function openCompany(id) {
     state.view = 'company';
+    let c, offline = false;
     try {
-      const c = await api('/companies/' + id);
+      c = await api('/companies/' + id);
+      try { localStorage.setItem('vs_cache_co_' + id, JSON.stringify(c)); } catch {} // telefonra mentés (offline)
+    } catch {
+      try { c = JSON.parse(localStorage.getItem('vs_cache_co_' + id) || 'null'); } catch {}
+      if (!c) return toast('Nem sikerült betölteni a céget');
+      offline = true;
+    }
+    try {
       const v = c.verdict || 'unknown';
       const trend = c.trend === 'improving' ? '<span class="trend up">↗ javuló</span>'
         : c.trend === 'worsening' ? '<span class="trend down">↘ romló</span>' : '';
@@ -201,9 +219,10 @@ const App = (() => {
         clearTimeout(mt); const q = e.target.value.trim();
         mt = setTimeout(() => mergeSearch(c.id, q), 250);
       });
-      // Ha még nincs AI-vélemény, automatikusan legeneráljuk (a háttérben).
-      if (c.comment_count > 0 && !c.ai_opinion) requestOpinion(c.id);
-    } catch { toast('Nem sikerült betölteni a céget'); }
+      // Ha még nincs AI-vélemény, automatikusan legeneráljuk (online, a háttérben).
+      if (!offline && c.comment_count > 0 && !c.ai_opinion) requestOpinion(c.id);
+      if (offline) toast('Offline – mentett adat');
+    } catch { toast('Nem sikerült megjeleníteni a céget'); }
   }
 
   // ---- AI cég-vélemény (vállaljunk-e fuvart) ----
@@ -723,9 +742,47 @@ const App = (() => {
       <button class="btn btn-primary" onclick="App.saveSettings()">Mentés</button>
       <button class="btn btn-ghost" onclick="App.go('list')">Vissza</button>
       <hr style="border:none;border-top:1px solid var(--line);margin:20px 0" />
-      <h3 style="font-size:15px">Karbantartás</h3>
+      <h3 style="font-size:15px">Adatbázis</h3>
+      <button class="btn btn-ghost" onclick="App.downloadDb()">💾 Adatbázis letöltése (mentés)</button>
+      <input type="file" id="db-file" accept=".sqlite,.db,.sqlite3,application/octet-stream" style="display:none" />
+      <button class="btn btn-ghost" onclick="document.getElementById('db-file').click()">📤 Adatbázis feltöltése (egyesítés)</button>
+      <p class="muted" style="font-size:12px">A feltöltés a letöltött .sqlite mentés adatait <strong>hozzáadja</strong> (nem írja felül) a központi adatbázishoz.</p>
+      <h3 style="font-size:15px;margin-top:20px">Karbantartás</h3>
       <button class="btn btn-ghost" onclick="App.translateOld()">🌐 Régi kommentek lefordítása magyarra</button>
       <p class="muted" style="margin-top:16px;font-size:13px">Tipp: telepítsd kezdőképernyőre, majd a Facebookban „Megosztás → Vallorscan”, vagy nyomd meg a ＋ gombot és tölts fel képernyőképeket.</p>`;
+    document.getElementById('db-file').addEventListener('change', onDbFile);
+  }
+  // Adatbázis letöltése (auth-fejléccel, blob-ként) – a telefonra mentve.
+  async function downloadDb() {
+    toast('Letöltés…');
+    try {
+      const t = token();
+      const res = await fetch(base() + '/api/backup', { headers: t ? { authorization: 'Bearer ' + t } : {} });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'vallorscan-mentes-' + new Date().toISOString().slice(0, 10) + '.sqlite';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 8000);
+    } catch (e) { toast('Letöltés sikertelen: ' + e.message); }
+  }
+  // Feltöltött .sqlite felismerése és egyesítése.
+  function onDbFile(ev) {
+    const f = ev.target.files && ev.target.files[0]; ev.target.value = '';
+    if (!f) return;
+    const fr = new FileReader();
+    fr.onload = async () => {
+      const data = String(fr.result).split(',')[1];
+      toast('Feltöltés és egyesítés…');
+      try {
+        const r = await api('/admin/restore', { method: 'POST', body: JSON.stringify({ data }) });
+        const added = Object.entries(r.added || {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}: +${v}`).join(', ');
+        toast('Egyesítve ✓ ' + (added || 'nincs új adat'));
+        loadList();
+      } catch (e) { toast('Visszaállítás sikertelen: ' + e.message); }
+    };
+    fr.readAsDataURL(f);
   }
   function saveSettings() {
     localStorage.setItem('vs_server', val('s-server'));
@@ -779,5 +836,5 @@ const App = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig, translateOld, composeMode, pickVerdict, saveManual, requestOpinion };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig, translateOld, composeMode, pickVerdict, saveManual, requestOpinion, downloadDb };
 })();

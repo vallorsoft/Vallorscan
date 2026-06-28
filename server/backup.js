@@ -42,3 +42,8 @@ export function scheduleBackups() {
 export function dbFilePath() {
   return DB_PATH;
 }
+
+// WAL → fő fájl összefésülése, hogy a letöltött .sqlite naprakész és konzisztens legyen.
+export function checkpoint() {
+  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch {}
+}

@@ -9,8 +9,9 @@ import { previewReport, commitReport, queueReport, listPendingReports, getReport
 import { listCompanies, getCompany, search, stats, addCompanyRef, removeCompanyRef, deleteComment, deleteCompany, renameCompany } from './queries.js';
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
-import { scheduleBackups, dbFilePath } from './backup.js';
+import { scheduleBackups, dbFilePath, checkpoint } from './backup.js';
 import { scheduleMaintenance } from './maintenance.js';
+import { restoreFromBase64 } from './restore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -58,7 +59,12 @@ api.get('/config', (req, res) => res.json({ problem_types: PROBLEM_TYPES, auth: 
 api.get('/stats', (req, res) => res.json(stats()));
 
 // --- Aktuális adatbázis letöltése (admin mentéshez) ---
-api.get('/backup', (req, res) => { res.download(dbFilePath(), 'vallorscan-backup.sqlite'); });
+api.get('/backup', (req, res) => { checkpoint(); res.download(dbFilePath(), 'vallorscan-backup.sqlite'); });
+// --- Adatbázis visszaállítás/egyesítés (feltöltött .sqlite) ---
+api.post('/admin/restore', (req, res) => {
+  try { res.json(restoreFromBase64(req.body?.data)); }
+  catch (e) { res.status(400).json({ error: String(e.message || e) }); }
+});
 
 api.post('/share/preview', async (req, res) => {
   try {
