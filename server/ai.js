@@ -3,17 +3,43 @@ import { normalizeCui, normalizePlate } from './normalize.js';
 
 const API_KEY = process.env.GEMINI_API_KEY || '';
 
-// Több ingyenes Gemini modell, sorrendben. Ha az egyik túlterhelt (503) vagy elfogyott
-// az ingyenes kerete (429), automatikusan a következőre váltunk. Env-ből felülírható
-// (GEMINI_MODELS=vesszővel; a régi GEMINI_MODEL is tiszteletben tartva, elsőként).
-const DEFAULT_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
-const MODELS = (() => {
-  const fromEnv = (process.env.GEMINI_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean);
-  const list = fromEnv.length ? fromEnv : [...DEFAULT_MODELS];
-  const single = (process.env.GEMINI_MODEL || '').trim();
-  if (single && !list.includes(single)) list.unshift(single);
-  return list;
-})();
+// AZ ÖSSZES ingyenes Gemini modellt sorban használjuk. A listát a Geminitől kérdezzük le
+// (a kulcs a free-tier modelleket adja), így mindig naprakész. Ha az egyik túlterhelt (503)
+// vagy elfogyott a kerete (429), jön a következő. Env-ből felülírható: GEMINI_MODELS (vessző).
+const ENV_MODELS = (process.env.GEMINI_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const GEMINI_MODEL = (process.env.GEMINI_MODEL || '').trim();
+// Preferált sorrend (ezek mennek elöl, ha léteznek); a többi felfedezett modell mögé kerül.
+const PREFERRED = [
+  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
+  'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+  'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro',
+];
+// Nem szöveg-/kép-értelmező modellek kiszűrése (beágyazás, képgenerálás, hang, stb.).
+const EXCLUDE = /embedding|aqa|imagen|veo|tts|audio|vision|learnlm|image|gemma/i;
+let cachedModels = null;
+
+/** Az elérhető (ingyenes) Gemini modellek listája, preferált sorrendben. Cache-elt. */
+async function resolveModels() {
+  const withSingle = (list) => (GEMINI_MODEL && !list.includes(GEMINI_MODEL)) ? [GEMINI_MODEL, ...list] : list;
+  if (ENV_MODELS.length) return withSingle([...ENV_MODELS]);   // kézi felülírás
+  if (cachedModels) return cachedModels;
+  let live = [];
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}&pageSize=1000`);
+    if (res.ok) {
+      const j = await res.json();
+      live = (j.models || [])
+        .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map((m) => String(m.name || '').replace(/^models\//, ''))
+        .filter((n) => n.startsWith('gemini-') && !EXCLUDE.test(n));
+    }
+  } catch { /* hálózati hiba → a preferált listára esünk vissza */ }
+  const ordered = [];
+  for (const p of PREFERRED) if (live.includes(p)) ordered.push(p);
+  for (const n of live) if (!ordered.includes(n)) ordered.push(n);
+  cachedModels = withSingle(ordered.length ? ordered : [...PREFERRED]);
+  return cachedModels;
+}
 
 /** Egy konkrét modell hívása. Hibánál a HTTP státuszt is felteszi az errorra. */
 async function geminiCall(model, body, timeoutMs) {
@@ -39,30 +65,27 @@ async function geminiCall(model, body, timeoutMs) {
   }
 }
 
-/** Átmeneti/keret-hiba? Ilyenkor érdemes a következő modellel próbálkozni. */
-function isRetryableModelError(e) {
-  if (e.status && [429, 500, 503].includes(e.status)) return true; // rate limit / kvóta / túlterhelt
-  const m = String(e.message || '').toUpperCase();
-  return e.name === 'AbortError'
-    || m.includes('OVERLOAD') || m.includes('UNAVAILABLE')
-    || m.includes('RESOURCE_EXHAUSTED') || m.includes('QUOTA');
+/** Csak a hibás kulcs (401/403) végzetes – minden más esetben próbáljuk a következő modellt. */
+function isFatalError(e) {
+  return e.code === 'NO_AI_KEY' || e.status === 401 || e.status === 403;
 }
 
-/** Végigpróbálja a modelleket: ha egy nem elérhető / elfogyott a kerete, jön a következő. */
+/** Végigpróbálja az összes modellt: ha egy nem elérhető / elfogyott a kerete, jön a következő. */
 async function geminiJSON(body, timeoutMs) {
+  const models = await resolveModels();
   let lastErr;
-  for (const model of MODELS) {
+  for (const model of models) {
     try {
       const data = await geminiCall(model, body, timeoutMs);
-      if (model !== MODELS[0]) console.log(`Gemini: a(z) ${model} modellt használtuk (az előző nem volt elérhető).`);
+      if (model !== models[0]) console.log(`Gemini: a(z) ${model} modellt használtuk (a korábbiak nem voltak elérhetők).`);
       return data;
     } catch (e) {
       lastErr = e;
-      if (!isRetryableModelError(e)) throw e; // pl. 400 (hibás kérés) → nincs értelme váltani
-      console.warn(`Gemini ${model} nem elérhető (${e.status || e.message}), próbálom a következő modellt…`);
+      if (isFatalError(e)) throw e; // pl. hibás kulcs → minden modellnél ugyanaz lenne
+      console.warn(`Gemini ${model} nem ment (${e.status || e.message}), jön a következő modell…`);
     }
   }
-  throw lastErr;
+  throw lastErr || new Error('Nincs elérhető Gemini modell.');
 }
 
 const PROBLEM_TYPES = ['non_payment', 'late_payment', 'fraud', 'damage', 'dispute', 'other'];
