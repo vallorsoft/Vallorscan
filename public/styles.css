@@ -143,6 +143,12 @@ textarea.f { min-height: 90px; resize: vertical; }
 .cmt-extra .f { margin: 0; }
 .cmt-due { margin-top: 6px; font-size: 13px; }
 .cmt-author { margin-top: 6px; font-size: 12px; }
+.cmt-orig { margin-top: 6px; font-size: 13px; font-style: italic; }
+
+/* Eredeti nyelv mutatása a cég oldalán */
+.lang-toggle { margin-top: 6px; background: transparent; border: 1px solid var(--line);
+  color: var(--muted); border-radius: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.tl-orig { margin: 6px 0 0; white-space: pre-wrap; font-style: italic; }
 
 /* Problématípus-címkék */
 .tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

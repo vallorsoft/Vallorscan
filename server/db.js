@@ -138,6 +138,7 @@ function addColumnIfMissing(table, col, type) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
   }
 }
+addColumnIfMissing('comments', 'text_hu', 'TEXT');    // magyar fordítás (megjelenítéshez)
 addColumnIfMissing('comments', 'tags', 'TEXT');       // JSON tömb: problématípus-címkék
 addColumnIfMissing('comments', 'amount', 'REAL');     // említett tartozás összege
 addColumnIfMissing('comments', 'currency', 'TEXT');   // pénznem

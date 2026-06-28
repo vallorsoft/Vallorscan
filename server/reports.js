@@ -43,10 +43,10 @@ export function commitReport(fields, userId) {
     const ts = now();
     const ins = db.prepare(`
       INSERT OR IGNORE INTO comments
-        (id, company_id, report_id, author, text, sentiment, pay_signal,
+        (id, company_id, report_id, author, text, text_hu, sentiment, pay_signal,
          tags, amount, currency, due_text,
          comment_date, date_text, dedup_key, created_by, created_at)
-      VALUES (@id,@company_id,@report_id,@author,@text,@sentiment,@pay_signal,
+      VALUES (@id,@company_id,@report_id,@author,@text,@text_hu,@sentiment,@pay_signal,
          @tags,@amount,@currency,@due_text,
          @comment_date,@date_text,@dedup_key,@created_by,@created_at)
     `);
@@ -58,7 +58,7 @@ export function commitReport(fields, userId) {
       const tags = Array.isArray(c.tags) ? c.tags.filter((t) => COMMENT_TAGS.includes(t)) : [];
       const r = ins.run({
         id: uid(), company_id: company.id, report_id: reportId,
-        author: c.author?.trim() || null, text,
+        author: c.author?.trim() || null, text, text_hu: c.text_hu?.trim() || null,
         sentiment: SENT(c.sentiment), pay_signal: PAY(c.pay_signal),
         tags: tags.length ? JSON.stringify(tags) : null,
         amount: numOrNull(c.amount), currency: c.currency?.trim() || null,

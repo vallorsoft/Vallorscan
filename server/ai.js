@@ -249,6 +249,7 @@ const COMMENT_SCHEMA = {
         properties: {
           author: { type: 'string', nullable: true },
           text: { type: 'string' },
+          text_hu: { type: 'string' },
           sentiment: { type: 'string', enum: SENTIMENTS },
           pay_signal: { type: 'string', enum: PAY_SIGNALS },
           tags: { type: 'array', items: { type: 'string', enum: COMMENT_TAGS } },
@@ -273,7 +274,9 @@ A szöveg lehet román, magyar vagy angol nyelvű.
 
 Olvasd ki a posztot és MINDEN kommentet a képekről. Minden egyes kommenthez add meg:
 - author: a hozzászóló neve, ha látszik (különben null).
-- text: a komment szövege tömören, az eredeti nyelven.
+- text: a komment szövege tömören, az EREDETI nyelven (ahogy a képen szerepel).
+- text_hu: UGYANEZ magyarra fordítva. MINDIG magyarul add meg, bármilyen volt az eredeti
+  (román/angol/stb.). Ha az eredeti már magyar, akkor text_hu = text.
 - sentiment: a cégre nézve 'positive' (korrekt, fizet, ajánlják), 'negative'
   (nem fizet, csalás, panasz, megkárosít), vagy 'neutral' (kérdés, nem egyértelmű).
 - pay_signal: 'pays' (fizet/korrekt), 'nonpay' (nem fizet/megkárosít), 'unknown'.
@@ -326,6 +329,7 @@ function sanitizeComments(o) {
     .map((c) => ({
       author: c.author?.trim() || null,
       text: String(c.text || '').trim(),
+      text_hu: String(c.text_hu || '').trim() || null,
       sentiment: SENTIMENTS.includes(c.sentiment) ? c.sentiment : 'neutral',
       pay_signal: PAY_SIGNALS.includes(c.pay_signal) ? c.pay_signal : 'unknown',
       tags: [...new Set((c.tags || []).filter((t) => COMMENT_TAGS.includes(t)))],

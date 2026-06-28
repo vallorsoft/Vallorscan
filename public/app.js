@@ -112,7 +112,10 @@ const App = (() => {
             ${cm.comment_date ? dateStr(cm.comment_date) : (cm.date_text ? esc(cm.date_text) : '')}
             ${cm.author ? `· ${esc(cm.author)}` : ''}
             <button class="tl-del" onclick="App.deleteComment('${c.id}','${cm.id}')" title="Komment törlése">🗑</button></div>
-          <p class="tl-text">${esc(cm.text)}</p>
+          <p class="tl-text">${esc(cm.text_hu || cm.text)}</p>
+          ${cm.text_hu && cm.text && cm.text.trim() !== cm.text_hu.trim()
+            ? `<button class="lang-toggle" onclick="App.toggleOrig(this)">🌐 eredeti nyelv</button>
+               <p class="tl-orig muted" style="display:none">${esc(cm.text)}</p>` : ''}
           ${cm.amount ? `<div class="debt">💶 ${money(cm.amount, cm.currency)}</div>` : ''}
           ${cm.due_text ? `<div class="muted">📅 ${esc(cm.due_text)}</div>` : ''}
           ${tagsHtml(parseTags(cm.tags))}
@@ -426,7 +429,8 @@ const App = (() => {
         <input class="f cmt-date" value="${esc(c.comment_date || '')}" placeholder="ÉÉÉÉ-HH-NN" />
         <button class="cmt-del" onclick="App.delComment(${i})">🗑</button>
       </div>
-      <textarea class="f cmt-text">${esc(c.text)}</textarea>
+      <textarea class="f cmt-text">${esc(c.text_hu || c.text)}</textarea>
+      ${c.text && c.text_hu && c.text.trim() !== c.text_hu.trim() ? `<div class="cmt-orig muted">eredeti: ${esc(c.text)}</div>` : ''}
       <div class="cmt-extra">
         <input class="f cmt-amount" inputmode="decimal" value="${c.amount ?? ''}" placeholder="összeg" />
         <input class="f cmt-cur" value="${esc(c.currency || '')}" placeholder="pénznem" />
@@ -440,6 +444,7 @@ const App = (() => {
     const rows = [...document.querySelectorAll('#rv-comments .cmt')];
     report.preview.comments = rows.map((row) => {
       const prev = report.preview.comments[Number(row.dataset.i)] || {};
+      const huText = row.querySelector('.cmt-text').value.trim(); // a szerkesztett (magyar) szöveg
       return {
         author: prev.author || null,
         tags: prev.tags || [],
@@ -448,12 +453,21 @@ const App = (() => {
         comment_date: row.querySelector('.cmt-date').value.trim() || null,
         amount: row.querySelector('.cmt-amount').value.trim() || null,
         currency: row.querySelector('.cmt-cur').value.trim() || null,
-        text: row.querySelector('.cmt-text').value.trim(),
+        text: prev.text || huText, // eredeti nyelvű szöveg megőrizve
+        text_hu: huText,
       };
     });
     report.company = { id: val('rv-company-id'), name: val('rv-company'), cui: val('rv-cui') };
   }
   function delComment(i) { syncReview(); report.preview.comments.splice(i, 1); renderReportReview(report.preview); }
+  // Eredeti nyelvű komment mutatása/elrejtése (a magyar fordítás alatt).
+  function toggleOrig(btn) {
+    const o = btn.nextElementSibling;
+    if (!o) return;
+    const show = o.style.display === 'none';
+    o.style.display = show ? 'block' : 'none';
+    btn.textContent = show ? '🇭🇺 magyar nézet' : '🌐 eredeti nyelv';
+  }
   function useAiName() {
     const n = report.preview?.company_name; if (!n) return;
     syncReview();                                  // megőrizzük a komment-szerkesztéseket
@@ -464,14 +478,14 @@ const App = (() => {
 
   function saveReport() {
     syncReview();
-    const cs = report.preview.comments.filter((c) => c.text);
+    const cs = report.preview.comments.filter((c) => c.text || c.text_hu);
     if (!cs.length) return toast('Nincs menthető komment');
     const co = report.company;
     if (!co.id && !co.name) return toast('Adj meg egy céget');
     const payload = {
       company_id: co.id || undefined, company_name: co.name, cui: co.cui || undefined,
       comments: cs.map((c) => ({
-        text: c.text, sentiment: c.sentiment, comment_date: c.comment_date,
+        text: c.text || c.text_hu, text_hu: c.text_hu, sentiment: c.sentiment, comment_date: c.comment_date,
         author: c.author, tags: c.tags || [], amount: c.amount, currency: c.currency, due_text: c.due_text,
         pay_signal: c.sentiment === 'positive' ? 'pays' : c.sentiment === 'negative' ? 'nonpay' : 'unknown',
       })),
@@ -575,5 +589,5 @@ const App = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig };
 })();
