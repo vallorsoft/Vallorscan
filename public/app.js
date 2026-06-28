@@ -544,12 +544,24 @@ const App = (() => {
       <input class="f" id="s-token" placeholder="token" value="${esc(token())}" />
       <button class="btn btn-primary" onclick="App.saveSettings()">Mentés</button>
       <button class="btn btn-ghost" onclick="App.go('list')">Vissza</button>
+      <hr style="border:none;border-top:1px solid var(--line);margin:20px 0" />
+      <h3 style="font-size:15px">Karbantartás</h3>
+      <button class="btn btn-ghost" onclick="App.translateOld()">🌐 Régi kommentek lefordítása magyarra</button>
       <p class="muted" style="margin-top:16px;font-size:13px">Tipp: telepítsd kezdőképernyőre, majd a Facebookban „Megosztás → Vallorscan”, vagy nyomd meg a ＋ gombot és tölts fel képernyőképeket.</p>`;
   }
   function saveSettings() {
     localStorage.setItem('vs_server', val('s-server'));
     localStorage.setItem('vs_token', val('s-token'));
     toast('Mentve'); go('list');
+  }
+  // Régi (fordítás nélküli) kommentek lefordítása magyarra – ismételhető, ha sok maradt.
+  async function translateOld() {
+    toast('🌐 Fordítás folyamatban… (pár másodperc)');
+    let r;
+    try { r = await api('/admin/translate', { method: 'POST', body: JSON.stringify({ limit: 200 }) }); }
+    catch (e) { return toast('Fordítás sikertelen: ' + e.message); }
+    if (!r.translated && !r.remaining) return toast('Nincs fordítandó komment ✓');
+    toast(`${r.translated} komment lefordítva${r.remaining ? `, még ${r.remaining} maradt – nyomd meg újra` : ' ✓'}`);
   }
 
   // ---- Router ----
@@ -589,5 +601,5 @@ const App = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport, toggleOrig, translateOld };
 })();

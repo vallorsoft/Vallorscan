@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { authMiddleware, authEnabled } from './auth.js';
 import { sseHandler } from './events.js';
 import { previewShare, commitShare } from './posts.js';
-import { previewReport, commitReport, queueReport, listPendingReports, getReport, approveReport, discardReport } from './reports.js';
+import { previewReport, commitReport, queueReport, listPendingReports, getReport, approveReport, discardReport, translateMissingComments } from './reports.js';
 import { listCompanies, getCompany, search, stats, addCompanyRef, removeCompanyRef, deleteComment, deleteCompany, renameCompany } from './queries.js';
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
@@ -96,6 +96,11 @@ api.post('/reports/queue', (req, res) => {
   catch (e) { res.status(400).json({ error: String(e.message || e) }); }
 });
 api.get('/reports/pending', (req, res) => res.json(listPendingReports()));
+// Régi (fordítás nélküli) kommentek magyarra fordítása – kötegelt, ismételhető.
+api.post('/admin/translate', async (req, res) => {
+  try { res.json(await translateMissingComments({ limit: Number(req.body?.limit) || 200 })); }
+  catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
 api.get('/reports/:id', (req, res) => {
   const r = getReport(req.params.id);
   if (!r) return res.status(404).json({ error: 'not found' });

@@ -324,6 +324,27 @@ export async function extractCommentsFromImages(images, today) {
   return sanitizeComments(data);
 }
 
+const TRANSLATE_SCHEMA = {
+  type: 'object',
+  properties: { translations: { type: 'array', items: { type: 'string' } } },
+  required: ['translations'],
+};
+
+/** Szövegek magyarra fordítása (a már mentett kommentekhez). Sorrend megőrizve. */
+export async function translateToHungarian(texts) {
+  if (!API_KEY || !texts.length) return texts.map(() => null);
+  const data = await geminiJSON({
+    systemInstruction: { parts: [{ text:
+      'Fordítsd le a megadott szövegeket magyarra. Add vissza UGYANANNYI elemű tömbben, '
+      + 'UGYANABBAN a sorrendben (translations). Csak a fordításokat add, ne magyarázz. '
+      + 'Ha egy szöveg már magyar, add vissza változatlanul.' }] },
+    contents: [{ role: 'user', parts: [{ text: JSON.stringify(texts) }] }],
+    generationConfig: { responseMimeType: 'application/json', responseSchema: TRANSLATE_SCHEMA, temperature: 0 },
+  }, 30000);
+  const tr = Array.isArray(data.translations) ? data.translations : [];
+  return texts.map((_, i) => String(tr[i] || '').trim() || null);
+}
+
 function sanitizeComments(o) {
   const comments = (o.comments || [])
     .map((c) => ({

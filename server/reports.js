@@ -1,7 +1,7 @@
 // Reputáció-beküldés: képernyőképek → AI komment-kinyerés (preview) → mentés (commit).
 import crypto from 'node:crypto';
 import { db, now, uid, audit } from './db.js';
-import { extractCommentsFromImages, COMMENT_TAGS } from './ai.js';
+import { extractCommentsFromImages, translateToHungarian, COMMENT_TAGS } from './ai.js';
 import { resolveCompany } from './dedup.js';
 import { stripDiacritics } from './normalize.js';
 import { broadcast } from './events.js';
@@ -136,6 +136,27 @@ export function approveReport(id, fields, userId) {
   db.prepare('DELETE FROM reports WHERE id = ?').run(id);
   broadcast('report.updated', { id });
   return res;
+}
+
+/** A korábban mentett, fordítás nélküli kommentek magyarra fordítása (kötegelt). */
+export async function translateMissingComments({ limit = 200 } = {}) {
+  const missingSql = "(text_hu IS NULL OR text_hu='') AND text IS NOT NULL AND text<>''";
+  const rows = db.prepare(`SELECT id, text FROM comments WHERE ${missingSql} LIMIT ?`).all(limit);
+  let translated = 0;
+  const upd = db.prepare('UPDATE comments SET text_hu = ? WHERE id = ?');
+  const BATCH = 25;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    let hus;
+    try { hus = await translateToHungarian(chunk.map((r) => r.text)); }
+    catch { hus = chunk.map(() => null); }
+    db.transaction(() => {
+      chunk.forEach((r, j) => { if (hus[j]) { upd.run(hus[j], r.id); translated++; } });
+    })();
+  }
+  const remaining = db.prepare(`SELECT COUNT(*) n FROM comments WHERE ${missingSql}`).get().n;
+  if (translated) broadcast('post.created', {});
+  return { translated, remaining };
 }
 
 /** Egy függő beküldés eldobása (pl. hibás vagy fölösleges). */
