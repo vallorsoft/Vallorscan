@@ -114,9 +114,27 @@ export function search(qRaw, { limit = 50 } = {}) {
     }
   } catch { /* FTS szintaxis hiba esetén kihagyjuk */ }
 
+  // Kulcsszó a hozzászólások szövegében (egyszerű LIKE) → érintett cégek.
+  let byComment = [];
+  try {
+    const words = q.split(/\s+/).filter(Boolean);
+    if (words.length) {
+      const likeClause = words.map(() => 'cm.text LIKE ?').join(' OR ');
+      const params = words.map((w) => `%${w}%`);
+      const rows = db.prepare(`
+        SELECT DISTINCT cm.company_id FROM comments cm
+        WHERE (${likeClause}) AND cm.company_id IS NOT NULL LIMIT ?
+      `).all(...params, limit);
+      const ids = rows.map((r) => r.company_id);
+      if (ids.length) {
+        byComment = db.prepare(`${companyAgg} WHERE c.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+      }
+    }
+  } catch { /* hibás bemenet esetén kihagyjuk */ }
+
   // Egyesítés, duplikátum nélkül.
   const map = new Map();
-  for (const c of [...byName, ...byKeyword]) map.set(c.id, c);
+  for (const c of [...byName, ...byKeyword, ...byComment]) map.set(c.id, c);
   return { mode: 'search', companies: [...map.values()].slice(0, limit).map(decorate) };
 }
 

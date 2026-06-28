@@ -9,6 +9,7 @@ import { previewReport, commitReport } from './reports.js';
 import { listCompanies, getCompany, search, stats, addCompanyRef, removeCompanyRef } from './queries.js';
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
+import { scheduleBackups, dbFilePath } from './backup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -54,6 +55,9 @@ api.use(authMiddleware);
 
 api.get('/config', (req, res) => res.json({ problem_types: PROBLEM_TYPES, auth: authEnabled, user: req.user }));
 api.get('/stats', (req, res) => res.json(stats()));
+
+// --- Aktuális adatbázis letöltése (admin mentéshez) ---
+api.get('/backup', (req, res) => { res.download(dbFilePath(), 'vallorscan-backup.sqlite'); });
 
 api.post('/share/preview', async (req, res) => {
   try {
@@ -123,4 +127,5 @@ app.get('*', (req, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
 
 app.listen(PORT, HOST, () => {
   console.log(`Vallorscan fut: http://${HOST}:${PORT}  (auth: ${authEnabled ? 'BE' : 'KI – csak teszthez'})`);
+  scheduleBackups();
 });
