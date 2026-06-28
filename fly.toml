@@ -3,7 +3,7 @@
 # Soha ne skálázd 2+ gépre, mert a SQLite fájl nem osztható meg gépek között.
 
 app = "vallorscan"
-primary_region = "ams"   # Amszterdam – közel HU/RO-hoz; igény szerint módosítható
+primary_region = "fra"   # Frankfurt – közel HU/RO-hoz; igény szerint módosítható
 
 [build]
 
