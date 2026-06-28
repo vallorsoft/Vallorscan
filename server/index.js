@@ -22,10 +22,18 @@ const PUBLIC = path.join(__dirname, '..', 'public');
 // --- Health check (Fly.io / load balancer figyeli, auth nélkül) ---
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
-// --- TWA / PWABuilder APK: Digital Asset Links (a böngészősáv elrejtéséhez).
-// A tartalmat az ASSETLINKS_JSON env-ből szolgáljuk ki – a PWABuilder adja meg. ---
+// --- TWA APK: Digital Asset Links (a böngészősáv elrejtéséhez).
+// A telepíthető Vallorscan APK aláírókulcsának ujjlenyomata. Env-ből felülírható. ---
+const DEFAULT_ASSETLINKS = JSON.stringify([{
+  relation: ['delegate_permission/common.handle_all_urls'],
+  target: {
+    namespace: 'android_app',
+    package_name: 'dev.fly.vallorscan.twa',
+    sha256_cert_fingerprints: ['28:A5:42:E3:91:AF:FC:35:E7:F7:D7:52:3F:4A:3D:20:90:12:B9:98:49:1A:C6:1E:0A:91:1A:B9:DB:0B:76:90'],
+  },
+}]);
 app.get('/.well-known/assetlinks.json', (req, res) => {
-  res.type('application/json').send(process.env.ASSETLINKS_JSON || '[]');
+  res.type('application/json').send(process.env.ASSETLINKS_JSON || DEFAULT_ASSETLINKS);
 });
 
 // --- Valós idejű események (auth a query token alapján is mehet EventSource-nál) ---
