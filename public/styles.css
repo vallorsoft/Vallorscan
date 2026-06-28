@@ -135,6 +135,7 @@ textarea.f { min-height: 90px; resize: vertical; }
 .tally { display: flex; gap: 14px; margin: 14px 0 8px; font-size: 15px; }
 .cmt { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: var(--bg); }
 .cmt-other { border-color: #a16207; }
+.cmt-newco { border-color: var(--accent); background: #0b1f2a; }
 .cmt-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
 .cmt-row .f { margin: 0; }
 .cmt-text { margin-top: 8px; min-height: 56px; }

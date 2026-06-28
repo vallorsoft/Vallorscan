@@ -255,6 +255,7 @@ const COMMENT_SCHEMA = {
           tags: { type: 'array', items: { type: 'string', enum: COMMENT_TAGS } },
           about_other_company: { type: 'boolean' },
           other_company_name: { type: 'string', nullable: true },
+          other_confidence: { type: 'number' },
           amount: { type: 'number', nullable: true },
           currency: { type: 'string', nullable: true },
           due_text: { type: 'string', nullable: true },
@@ -297,6 +298,8 @@ Olvasd ki a posztot és MINDEN kommentet a képekről. Minden egyes kommenthez a
 - about_other_company: true, HA a komment egyértelműen egy MÁSIK cégről szól (nem a tárgyalt
   cégről) – pl. valaki a saját, más céggel kapcsolatos esetét hozza fel. Egyébként false.
 - other_company_name: ha about_other_company=true és látszik, ANNAK a másik cégnek a neve.
+- other_confidence: 0..1, mennyire BIZTOS, hogy a komment MÁSIK cégről szól (1 = teljesen biztos).
+  Csak akkor legyen magas (>=0.95), ha EGYÉRTELMŰ (pl. konkrétan megnevez egy másik céget).
 - amount: ha említenek konkrét tartozás-összeget, a szám (csak a szám). Pl. "4800 euro" -> 4800.
 - currency: a pénznem (EUR, RON, HUF), ha van.
 - due_text: a számla/lejárat megnevezése, ha említik (pl. "factura din decembrie", "scadentă 22-01-2026").
@@ -427,6 +430,7 @@ function sanitizeComments(o) {
       tags: [...new Set((c.tags || []).filter((t) => COMMENT_TAGS.includes(t)))],
       about_other_company: !!c.about_other_company,
       other_company_name: c.other_company_name?.trim() || null,
+      other_confidence: clamp01(c.other_confidence ?? 0),
       amount: numOrNull(c.amount),
       currency: normCurrency(c.currency),
       due_text: c.due_text?.trim() || null,

@@ -532,7 +532,7 @@ const App = (() => {
   }
   function renderReportReview(r) {
     const cs = r.comments || [];
-    const t = tally(cs);
+    const t = tally(cs.filter((c) => !isOtherCompany(c)));
     const ai = r.company_name;
     const typed = (report.company.name || '').trim();
     // Az AI által kiolvasott cégnév – üres mezőbe beilleszthető, eltérés esetén felülírható.
@@ -542,6 +542,13 @@ const App = (() => {
             ? `<br/><button class="btn-ghost" style="display:inline;width:auto;padding:5px 12px;margin-top:6px" onclick="App.useAiName()">${typed ? 'Felülírás ezzel' : 'Cégnév beillesztése'}</button>`
             : ' ✓'}</div>`
       : `<div class="review-flag">ℹ️ Az AI nem talált egyértelmű cégnevet – írd be kézzel a mentéshez.</div>`;
+    // A nagy biztonsággal (>=95%) MÁS cégről szóló kommentek külön szekcióba (új cégként).
+    const mainHtml = cs.map((c, i) => isOtherCompany(c) ? '' : commentEditHtml(c, i)).join('');
+    const otherHtml = cs.map((c, i) => isOtherCompany(c) ? commentOtherEditHtml(c, i) : '').join('');
+    const otherSection = otherHtml.trim() ? `
+      <h3 class="muted sec">🆕 Más cégről szóló vélemény(ek) – külön cégként mentve</h3>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">Az AI szerint ezek MÁS céget érintenek. Ellenőrizd a cégnevet – mentéskor a megadott céghez kerülnek (nem a fő céghez).</p>
+      ${otherHtml}` : '';
     document.getElementById('sheet-title').textContent = 'Ellenőrzés & mentés';
     document.getElementById('sheet-body').innerHTML = `
       <div class="review-flag">📋 ${cs.length} komment felismerve. Ellenőrizd/javítsd, majd mentsd.</div>
@@ -553,9 +560,29 @@ const App = (() => {
       <div class="tally"><span class="s-pos">👍 ${t.positive || 0}</span>
         <span class="s-neg">👎 ${t.negative || 0}</span>
         <span class="s-neu">😐 ${t.neutral || 0}</span></div>
-      <div id="rv-comments">${cs.map(commentEditHtml).join('')}</div>
+      <div id="rv-comments">${mainHtml}${otherSection}</div>
       <button class="btn btn-primary" onclick="App.saveReport()">💾 Mentés (${cs.length})</button>
       <button class="btn btn-ghost" onclick="App.closeSheet()">Mégse</button>`;
+  }
+  // Nagy biztonsággal MÁS cégről szól (külön cégként kezeljük)?
+  function isOtherCompany(c) {
+    return c.about_other_company && (c.other_confidence ?? 0) >= 0.95 && (c.other_company_name || '').trim();
+  }
+  function commentOtherEditHtml(c, i) {
+    return `<div class="cmt cmt-newco" data-i="${i}">
+      <label style="margin-top:0">Felismert cég</label>
+      <input class="f cmt-othername" value="${esc(c.other_company_name || '')}" placeholder="Cég neve" />
+      <div class="cmt-row" style="margin-top:8px">
+        <select class="f cmt-sent">${sentOptions(c.sentiment)}</select>
+        <input class="f cmt-date" value="${esc(c.comment_date || '')}" placeholder="ÉÉÉÉ-HH-NN" />
+        <button class="cmt-del" onclick="App.delComment(${i})">🗑</button>
+      </div>
+      <textarea class="f cmt-text">${esc(c.text_hu || c.text)}</textarea>
+      <div class="cmt-extra">
+        <input class="f cmt-amount" inputmode="decimal" value="${c.amount ?? ''}" placeholder="összeg" />
+        <input class="f cmt-cur" value="${esc(c.currency || '')}" placeholder="pénznem" />
+      </div>
+    </div>`;
   }
   function commentEditHtml(c, i) {
     return `<div class="cmt${c.about_other_company ? ' cmt-other' : ''}" data-i="${i}">
@@ -581,12 +608,15 @@ const App = (() => {
     report.preview.comments = rows.map((row) => {
       const prev = report.preview.comments[Number(row.dataset.i)] || {};
       const huText = row.querySelector('.cmt-text').value.trim(); // a szerkesztett (magyar) szöveg
+      const otherNameInput = row.querySelector('.cmt-othername'); // csak a "más cég" szekcióban van
+      const isOther = !!otherNameInput;
       return {
         author: prev.author || null,
         tags: prev.tags || [],
         due_text: prev.due_text || null,
-        about_other_company: prev.about_other_company || false,
-        other_company_name: prev.other_company_name || null,
+        about_other_company: isOther,
+        other_company_name: isOther ? otherNameInput.value.trim() : null,
+        other_confidence: prev.other_confidence ?? 0,
         sentiment: row.querySelector('.cmt-sent').value,
         comment_date: row.querySelector('.cmt-date').value.trim() || null,
         amount: row.querySelector('.cmt-amount').value.trim() || null,
