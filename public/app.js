@@ -24,6 +24,7 @@ const App = (() => {
   let report = { images: [], preview: null, company: { id: '', name: '', cui: '' } };
   let acMatches = [];
   let companyRefs = [];
+  let mergeMatches = [];
   const view = document.getElementById('view');
 
   // ---- API ----
@@ -109,7 +110,8 @@ const App = (() => {
         <div class="tl-item tl-${cm.sentiment}">
           <div class="tl-date">${SENT_ICON[cm.sentiment] || ''}
             ${cm.comment_date ? dateStr(cm.comment_date) : (cm.date_text ? esc(cm.date_text) : '')}
-            ${cm.author ? `· ${esc(cm.author)}` : ''}</div>
+            ${cm.author ? `· ${esc(cm.author)}` : ''}
+            <button class="tl-del" onclick="App.deleteComment('${c.id}','${cm.id}')" title="Komment törlése">🗑</button></div>
           <p class="tl-text">${esc(cm.text)}</p>
           ${cm.amount ? `<div class="debt">💶 ${money(cm.amount, cm.currency)}</div>` : ''}
           ${cm.due_text ? `<div class="muted">📅 ${esc(cm.due_text)}</div>` : ''}
@@ -133,6 +135,18 @@ const App = (() => {
           <input class="f" id="ref-code" placeholder="azonosító / kód" />
           <button class="btn-ghost ref-addbtn" onclick="App.addRef('${c.id}')">+</button>
         </div>`;
+      // Cég kezelése: átnevezés, összevonás másik céggel, törlés.
+      mergeMatches = [];
+      const manageHtml = `
+        <h3 class="muted sec">Cég kezelése</h3>
+        <label>Cégnév + CUI javítása</label>
+        <input class="f" id="ed-name" value="${esc(c.name)}" placeholder="Cég neve" />
+        <input class="f" id="ed-cui" style="margin-top:8px" value="${esc(c.cui || '')}" placeholder="CUI (opcionális)" />
+        <button class="btn btn-ghost" onclick="App.renameCompany('${c.id}')">💾 Mentés</button>
+        <label>Összevonás másik céggel (a megtalált cég ebbe olvad be)</label>
+        <input class="f" id="mg-q" placeholder="Másik cég keresése (3+ betű)" autocomplete="off" />
+        <div id="mg-ac" class="ac-list"></div>
+        <button class="btn btn-ghost danger" onclick="App.deleteCompany('${c.id}')">🗑 Cég törlése</button>`;
       view.innerHTML = `
         <button class="btn btn-ghost" style="margin:0 0 12px;width:auto;padding:8px 14px" onclick="App.go('list')">← Vissza</button>
         <div class="cname" style="font-size:20px">${esc(c.name)}</div>
@@ -152,7 +166,14 @@ const App = (() => {
         ${refsHtml}
         ${comments ? `<h3 class="muted sec">Kommentek (időrend)</h3><div class="timeline">${comments}</div>` : ''}
         ${posts ? `<h3 class="muted sec">Korábbi bejegyzések</h3><div class="timeline">${posts}</div>` : ''}
-        ${!comments && !posts ? '<p class="muted">Még nincs adat ennél a cégnél.</p>' : ''}`;
+        ${!comments && !posts ? '<p class="muted">Még nincs adat ennél a cégnél.</p>' : ''}
+        ${manageHtml}`;
+      // Összevonás-kereső (debounce), az aktuális céget kihagyva.
+      let mt;
+      document.getElementById('mg-q').addEventListener('input', (e) => {
+        clearTimeout(mt); const q = e.target.value.trim();
+        mt = setTimeout(() => mergeSearch(c.id, q), 250);
+      });
     } catch { toast('Nem sikerült betölteni a céget'); }
   }
 
@@ -167,6 +188,46 @@ const App = (() => {
     const r = companyRefs[i]; if (!r) return;
     api('/companies/' + companyId + '/refs', { method: 'DELETE', body: JSON.stringify({ exchange: r.exchange, ref_code: r.ref_code }) })
       .then(() => openCompany(companyId)).catch((e) => toast('Hiba: ' + e.message));
+  }
+
+  // ---- Cég kezelése: átnevezés, összevonás, törlés ----
+  function renameCompany(id) {
+    const name = val('ed-name'); if (!name) return toast('Add meg a cégnevet');
+    api('/companies/' + id, { method: 'PATCH', body: JSON.stringify({ name, cui: val('ed-cui') }) })
+      .then(() => { openCompany(id); toast('Mentve ✓'); })
+      .catch((e) => toast('Hiba: ' + e.message));
+  }
+  function deleteCompany(id) {
+    if (!confirm('Biztos törlöd a céget és minden kommentjét?')) return;
+    api('/companies/' + id, { method: 'DELETE' })
+      .then(() => { go('list'); toast('Cég törölve'); })
+      .catch((e) => toast('Hiba: ' + e.message));
+  }
+  function deleteComment(companyId, commentId) {
+    if (!confirm('Biztos törlöd ezt a kommentet?')) return;
+    api('/comments/' + commentId, { method: 'DELETE' })
+      .then(() => { openCompany(companyId); toast('Komment törölve'); })
+      .catch((e) => toast('Hiba: ' + e.message));
+  }
+  async function mergeSearch(currentId, q) {
+    const ac = document.getElementById('mg-ac');
+    if (!ac) return;
+    if (q.length < 3) { ac.innerHTML = ''; return; }
+    let r; try { r = await api('/search?q=' + encodeURIComponent(q)); } catch { return; }
+    mergeMatches = (r.companies || []).filter((c) => c.id !== currentId).slice(0, 6);
+    ac.innerHTML = mergeMatches.length
+      ? mergeMatches.map((c, i) =>
+          `<div class="ac-item" onclick="App.pickMerge('${currentId}',${i})">${esc(c.name)}
+            ${c.cui ? `<span class="muted">· CUI ${esc(c.cui)}</span>` : ''}
+            <span class="vbadge v-${c.verdict || 'unknown'}">${VERDICT_LABELS[c.verdict || 'unknown']}</span></div>`).join('')
+      : '<div class="muted" style="padding:8px 2px">Nincs másik találat.</div>';
+  }
+  function pickMerge(currentId, i) {
+    const src = mergeMatches[i]; if (!src) return;
+    if (!confirm(`Biztos összevonod? A(z) ${src.name} beolvad ebbe a cégbe, és törlődik.`)) return;
+    api('/companies/' + currentId + '/merge', { method: 'POST', body: JSON.stringify({ source_id: src.id }) })
+      .then(() => { openCompany(currentId); toast('Cégek összevonva ✓'); })
+      .catch((e) => toast('Hiba: ' + e.message));
   }
 
   // ---- Új beküldés: cég + képernyőképek → AI ----
@@ -474,5 +535,5 @@ const App = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, analyzeReport, delComment, saveReport, useAiName, addRef, delRefByIndex };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, analyzeReport, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge };
 })();

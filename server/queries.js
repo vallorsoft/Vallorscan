@@ -1,5 +1,5 @@
 // Keresés és lekérdezések: cégnév, CUI, rendszám, börze-kód, kulcsszó (FTS).
-import { db, now, uid } from './db.js';
+import { db, now, uid, audit } from './db.js';
 import { normalizeCui, normalizePlate, normalizeCompanyName } from './normalize.js';
 import { computeVerdict } from './verdict.js';
 
@@ -65,6 +65,33 @@ export function removeCompanyRef(companyId, exchange, refCode) {
   db.prepare('DELETE FROM company_refs WHERE company_id = ? AND exchange = ? AND ref_code = ?')
     .run(companyId, exchange, refCode);
   return db.prepare('SELECT exchange, ref_code FROM company_refs WHERE company_id = ? ORDER BY exchange').all(companyId);
+}
+
+/** Egyetlen komment törlése. */
+export function deleteComment(commentId, userId) {
+  db.prepare('DELETE FROM comments WHERE id = ?').run(commentId);
+  audit(userId, 'comment.delete', 'comment', commentId);
+  return { ok: true };
+}
+
+/** Cég törlése – a kommentek/rendszámok/börze-kódok kaszkádolva törlődnek. */
+export function deleteCompany(companyId, userId) {
+  db.prepare('DELETE FROM companies WHERE id = ?').run(companyId);
+  audit(userId, 'company.delete', 'company', companyId);
+  return { ok: true };
+}
+
+/** Cég átnevezése (név + CUI javítása). Visszaadja a frissített cég-sort. */
+export function renameCompany(companyId, name, cui, userId) {
+  const n = String(name || '').trim();
+  if (!n) throw new Error('A cégnév kötelező.');
+  const company = db.prepare('SELECT id FROM companies WHERE id = ?').get(companyId);
+  if (!company) throw new Error('Ismeretlen cég.');
+  const cuiN = normalizeCui(cui) || null;
+  db.prepare('UPDATE companies SET name = ?, normalized_name = ?, cui = ?, updated_at = ? WHERE id = ?')
+    .run(n, normalizeCompanyName(n), cuiN, now(), companyId);
+  audit(userId, 'company.rename', 'company', companyId, { name: n, cui: cuiN });
+  return db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId);
 }
 
 /**

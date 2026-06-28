@@ -106,7 +106,7 @@ function attachPlates(companyId, plateNs, raws) {
   }
 }
 
-/** Két cég összevonása (kézi). minden bejegyzés/rendszám/alias a targetbe kerül. */
+/** Két cég összevonása (kézi). Minden bejegyzés/komment/rendszám/börze-kód/alias a targetbe kerül. */
 export function mergeCompanies(targetId, sourceId, userId) {
   if (targetId === sourceId) return;
   const tx = db.transaction(() => {
@@ -116,6 +116,9 @@ export function mergeCompanies(targetId, sourceId, userId) {
 
     db.prepare('UPDATE posts SET company_id = ? WHERE company_id = ?').run(targetId, sourceId);
     db.prepare('UPDATE OR IGNORE plates SET company_id = ? WHERE company_id = ?').run(targetId, sourceId);
+    // A kommentek és börze-kódok is a targetbe kerülnek (különben a forrás törlésekor elvesznének).
+    db.prepare('UPDATE comments SET company_id = ? WHERE company_id = ?').run(targetId, sourceId);
+    db.prepare('UPDATE OR IGNORE company_refs SET company_id = ? WHERE company_id = ?').run(targetId, sourceId);
     // A forrás neve aliasként megmarad a target alatt (jövőbeli egyezésekhez).
     db.prepare(
       `INSERT INTO company_aliases (id, company_id, alias_norm, created_at) VALUES (?, ?, ?, ?)`
