@@ -12,6 +12,10 @@ const App = (() => {
     eventually_paid: 'végül fizetett', fraud: 'csalás', damage: 'kár', dispute: 'vita',
     recommended: 'ajánlott', good_payer: 'korrekt fizető', other: 'egyéb',
   };
+  const EXCHANGE_LABELS = {
+    bursa_transport: 'Bursa Transport', timocom: 'Timocom', trans_eu: 'Trans.eu',
+    load123: '123load', teleroute: 'Teleroute', egyeb: 'Egyéb',
+  };
   const parseTags = (t) => Array.isArray(t) ? t : (() => { try { return JSON.parse(t) || []; } catch { return []; } })();
   // Kis/nagybetűtől és ékezettől független névösszehasonlítás (a felülírás-gomb megjelenítéséhez).
   const normName = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
@@ -19,6 +23,7 @@ const App = (() => {
   let state = { view: 'list', filter: '', q: '', config: null };
   let report = { images: [], preview: null, company: { id: '', name: '', cui: '' } };
   let acMatches = [];
+  let companyRefs = [];
   const view = document.getElementById('view');
 
   // ---- API ----
@@ -116,6 +121,18 @@ const App = (() => {
             ${p.problem_type ? `· <span class="badge b-${p.problem_type}">${PROBLEM_LABELS[p.problem_type] || p.problem_type}</span>` : ''}</div>
           <p class="tl-text">${esc(p.summary || p.raw_text)}</p>
         </div>`).join('');
+      companyRefs = c.refs || [];
+      const refList = companyRefs.length
+        ? companyRefs.map((r, i) => `<span class="pill ref">${esc(EXCHANGE_LABELS[r.exchange] || r.exchange)}: <strong>${esc(r.ref_code)}</strong> <button class="ref-x" onclick="App.delRefByIndex('${c.id}',${i})">✕</button></span>`).join('')
+        : '<span class="muted">nincs még börze-kód</span>';
+      const refsHtml = `
+        <h3 class="muted sec">Börze-azonosítók</h3>
+        <div class="refs">${refList}</div>
+        <div class="ref-add">
+          <select class="f" id="ref-ex">${Object.entries(EXCHANGE_LABELS).map(([k, vL]) => `<option value="${k}">${vL}</option>`).join('')}</select>
+          <input class="f" id="ref-code" placeholder="azonosító / kód" />
+          <button class="btn-ghost ref-addbtn" onclick="App.addRef('${c.id}')">+</button>
+        </div>`;
       view.innerHTML = `
         <button class="btn btn-ghost" style="margin:0 0 12px;width:auto;padding:8px 14px" onclick="App.go('list')">← Vissza</button>
         <div class="cname" style="font-size:20px">${esc(c.name)}</div>
@@ -132,10 +149,24 @@ const App = (() => {
             <span class="muted">· ${c.comment_count} komment</span>
           </div>` : ''}
         </div>
+        ${refsHtml}
         ${comments ? `<h3 class="muted sec">Kommentek (időrend)</h3><div class="timeline">${comments}</div>` : ''}
         ${posts ? `<h3 class="muted sec">Korábbi bejegyzések</h3><div class="timeline">${posts}</div>` : ''}
         ${!comments && !posts ? '<p class="muted">Még nincs adat ennél a cégnél.</p>' : ''}`;
     } catch { toast('Nem sikerült betölteni a céget'); }
+  }
+
+  // ---- Börze-azonosítók (Bursa Transport, Timocom, ...) ----
+  async function addRef(companyId) {
+    const exchange = val('ref-ex'), ref_code = val('ref-code');
+    if (!ref_code) return toast('Add meg a börze-kódot');
+    try { await api('/companies/' + companyId + '/refs', { method: 'POST', body: JSON.stringify({ exchange, ref_code }) }); openCompany(companyId); toast('Hozzáadva'); }
+    catch (e) { toast('Hiba: ' + e.message); }
+  }
+  function delRefByIndex(companyId, i) {
+    const r = companyRefs[i]; if (!r) return;
+    api('/companies/' + companyId + '/refs', { method: 'DELETE', body: JSON.stringify({ exchange: r.exchange, ref_code: r.ref_code }) })
+      .then(() => openCompany(companyId)).catch((e) => toast('Hiba: ' + e.message));
   }
 
   // ---- Új beküldés: cég + képernyőképek → AI ----
@@ -443,5 +474,5 @@ const App = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, analyzeReport, delComment, saveReport, useAiName };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, analyzeReport, delComment, saveReport, useAiName, addRef, delRefByIndex };
 })();

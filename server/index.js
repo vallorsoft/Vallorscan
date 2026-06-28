@@ -6,7 +6,7 @@ import { authMiddleware, authEnabled } from './auth.js';
 import { sseHandler } from './events.js';
 import { previewShare, commitShare } from './posts.js';
 import { previewReport, commitReport } from './reports.js';
-import { listCompanies, getCompany, search, stats } from './queries.js';
+import { listCompanies, getCompany, search, stats, addCompanyRef, removeCompanyRef } from './queries.js';
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
 
@@ -101,6 +101,16 @@ api.post('/companies/:id/merge', (req, res) => {
     mergeCompanies(req.params.id, req.body.source_id, req.user);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: String(e.message || e) }); }
+});
+
+// --- Börze-azonosítók (Bursa Transport, Timocom, ...) cégenként ---
+api.post('/companies/:id/refs', (req, res) => {
+  try { res.json({ refs: addCompanyRef(req.params.id, req.body.exchange, req.body.ref_code) }); }
+  catch (e) { res.status(400).json({ error: String(e.message || e) }); }
+});
+api.delete('/companies/:id/refs', (req, res) => {
+  try { res.json({ refs: removeCompanyRef(req.params.id, req.body.exchange, req.body.ref_code) }); }
+  catch (e) { res.status(400).json({ error: String(e.message || e) }); }
 });
 
 api.get('/search', (req, res) => res.json(search(req.query.q, { limit: Number(req.query.limit) || 50 })));

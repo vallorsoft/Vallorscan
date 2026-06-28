@@ -99,6 +99,18 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 CREATE INDEX IF NOT EXISTS ix_comments_company ON comments(company_id, comment_date DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_comments_dedup ON comments(dedup_key) WHERE dedup_key IS NOT NULL;
+
+-- Fuvarbörze-azonosítók cégenként (Bursa Transport, Timocom, Trans.eu, ...).
+CREATE TABLE IF NOT EXISTS company_refs (
+  id          TEXT PRIMARY KEY,
+  company_id  TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  exchange    TEXT NOT NULL,   -- pl. 'bursa_transport', 'timocom', 'trans_eu', 'egyeb'
+  ref_code    TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_refs_company ON company_refs(company_id);
+CREATE INDEX IF NOT EXISTS ix_refs_code ON company_refs(ref_code);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_refs ON company_refs(company_id, exchange, ref_code);
 `);
 
 // --- Migrációk: meglévő adatbázisnál a hiányzó oszlopok pótlása (adatvesztés nélkül) ---

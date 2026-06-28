@@ -1,5 +1,5 @@
-// Keresés és lekérdezések: cégnév, CUI, rendszám, kulcsszó (FTS) – mind támogatva.
-import { db } from './db.js';
+// Keresés és lekérdezések: cégnév, CUI, rendszám, börze-kód, kulcsszó (FTS).
+import { db, now, uid } from './db.js';
 import { normalizeCui, normalizePlate, normalizeCompanyName } from './normalize.js';
 import { computeVerdict } from './verdict.js';
 
@@ -44,7 +44,27 @@ export function getCompany(id) {
     `SELECT * FROM comments WHERE company_id = ? ORDER BY COALESCE(comment_date, created_at) DESC`
   ).all(id);
   const plates = db.prepare('SELECT plate_norm, plate_raw FROM plates WHERE company_id = ?').all(id);
-  return { ...decorate(company), posts, comments, plate_list: plates };
+  const refs = db.prepare('SELECT exchange, ref_code FROM company_refs WHERE company_id = ? ORDER BY exchange').all(id);
+  return { ...decorate(company), posts, comments, plate_list: plates, refs };
+}
+
+/** Cég börze-azonosítójának hozzáadása (Bursa Transport, Timocom, ...). */
+export function addCompanyRef(companyId, exchange, refCode) {
+  const company = db.prepare('SELECT id FROM companies WHERE id = ?').get(companyId);
+  if (!company) throw new Error('Ismeretlen cég.');
+  const ex = (String(exchange || 'egyeb').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || 'egyeb').slice(0, 32);
+  const code = String(refCode || '').trim();
+  if (!code) throw new Error('A börze-kód kötelező.');
+  db.prepare('INSERT OR IGNORE INTO company_refs (id, company_id, exchange, ref_code, created_at) VALUES (?,?,?,?,?)')
+    .run(uid(), companyId, ex, code, now());
+  return db.prepare('SELECT exchange, ref_code FROM company_refs WHERE company_id = ? ORDER BY exchange').all(companyId);
+}
+
+/** Cég börze-azonosítójának törlése. */
+export function removeCompanyRef(companyId, exchange, refCode) {
+  db.prepare('DELETE FROM company_refs WHERE company_id = ? AND exchange = ? AND ref_code = ?')
+    .run(companyId, exchange, refCode);
+  return db.prepare('SELECT exchange, ref_code FROM company_refs WHERE company_id = ? ORDER BY exchange').all(companyId);
 }
 
 /**
@@ -68,6 +88,10 @@ export function search(qRaw, { limit = 50 } = {}) {
       .all(`%${plate}%`);
     if (c.length) return { mode: 'plate', companies: c.map(decorate) };
   }
+  // Börze-azonosító (Bursa Transport / Timocom / ... kód)?
+  const byRef = db.prepare(`${companyAgg} WHERE c.id IN (SELECT company_id FROM company_refs WHERE ref_code LIKE ?)`)
+    .all(`%${q}%`);
+  if (byRef.length) return { mode: 'ref', companies: byRef.map(decorate) };
   // Cégnév (normalizált, részleges).
   const nameN = normalizeCompanyName(q);
   const byName = nameN
