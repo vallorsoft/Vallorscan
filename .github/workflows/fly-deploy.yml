@@ -1,0 +1,79 @@
+name: Fly Deploy
+
+# Deploy a Fly.io-ra GitHub Actions runnerről (a runner eléri a fly.io-t).
+# Szükséges repo-secret: FLY_API_TOKEN  (kötelező)
+# Opcionális repo-secret: SUPERADMIN_PASSWORD  (a superadmin jelszava; ha üres,
+#   a szerver generál egyet és a `fly logs`-ba írja az első indításkor).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - claude/hungarian-language-query-up8dew
+    paths:
+      - 'server/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'Dockerfile'
+      - 'fly.toml'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/fly-deploy.yml'
+
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Fly deploy
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLY_APP: vallorscan-vallorsoft
+      FLY_REGION: fra
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: flyctl telepítése
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Token ellenőrzése
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::Hiányzik a FLY_API_TOKEN repo-secret. Add hozzá: Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          flyctl auth whoami || true
+
+      - name: App létrehozása (ha még nincs)
+        run: |
+          if flyctl apps list 2>/dev/null | grep -qw "$FLY_APP"; then
+            echo "Az app már létezik: $FLY_APP"
+          else
+            echo "App létrehozása: $FLY_APP"
+            flyctl apps create "$FLY_APP" --org personal
+          fi
+
+      - name: Perzisztens diszk (volume) létrehozása (ha még nincs)
+        run: |
+          if flyctl volumes list -a "$FLY_APP" 2>/dev/null | grep -qw vallorscan_data; then
+            echo "A volume már létezik: vallorscan_data"
+          else
+            echo "Volume létrehozása: vallorscan_data ($FLY_REGION, 1GB)"
+            flyctl volumes create vallorscan_data --region "$FLY_REGION" --size 1 -a "$FLY_APP" --yes
+          fi
+
+      - name: Superadmin jelszó beállítása titokként (ha meg van adva)
+        if: ${{ secrets.SUPERADMIN_PASSWORD != '' }}
+        run: flyctl secrets set SUPERADMIN_PASSWORD="${{ secrets.SUPERADMIN_PASSWORD }}" -a "$FLY_APP" --stage
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --ha=false -a "$FLY_APP"
+
+      - name: Eredmény
+        run: |
+          echo "Kész. Az app elérhető:"
+          echo "  https://$FLY_APP.fly.dev"
+          flyctl status -a "$FLY_APP" || true

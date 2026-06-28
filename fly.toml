@@ -1,7 +1,7 @@
 # Vallorscan – Fly.io konfiguráció.
 # FONTOS: az "app" név globálisan egyedi kell legyen – futtasd: `fly launch --copy-config`
 # vagy írd át lentebb egyedire (pl. vallorscan-<valami>).
-app = "vallorscan"
+app = "vallorscan-vallorsoft"
 primary_region = "fra"   # Frankfurt – közel Magyarországhoz
 
 [build]
