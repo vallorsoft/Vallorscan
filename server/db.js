@@ -80,6 +80,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail     TEXT,
   created_at TEXT NOT NULL
 );
+
+-- Facebook-kommentek (képernyőképekből, AI-val kinyerve). Dátummal + hangulattal,
+-- hogy a cég reputációja időben (trend) is értékelhető legyen.
+CREATE TABLE IF NOT EXISTS comments (
+  id           TEXT PRIMARY KEY,
+  company_id   TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  report_id    TEXT,                 -- egy beküldés (screenshot-batch) azonosítója
+  author       TEXT,
+  text         TEXT NOT NULL,
+  sentiment    TEXT,                 -- 'positive' | 'negative' | 'neutral'
+  pay_signal   TEXT,                 -- 'pays' | 'nonpay' | 'unknown'
+  comment_date TEXT,                 -- 'YYYY-MM-DD' (relatívból számolva), lehet NULL
+  date_text    TEXT,                 -- eredeti időbélyeg szöveg, pl. "1 éve"
+  dedup_key    TEXT,                 -- cég+szöveg+dátum hash → duplikátum-védelem
+  created_by   TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_comments_company ON comments(company_id, comment_date DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_comments_dedup ON comments(dedup_key) WHERE dedup_key IS NOT NULL;
 `);
 
 export function now() {

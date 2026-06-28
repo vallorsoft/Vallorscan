@@ -156,6 +156,125 @@ export function fallbackExtract(text) {
   };
 }
 
+// ===================== Képernyőkép-elemzés (kommentek) =====================
+
+const SENTIMENTS = ['positive', 'negative', 'neutral'];
+const PAY_SIGNALS = ['pays', 'nonpay', 'unknown'];
+
+const COMMENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    company_name: { type: 'string', nullable: true },
+    comments: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          author: { type: 'string', nullable: true },
+          text: { type: 'string' },
+          sentiment: { type: 'string', enum: SENTIMENTS },
+          pay_signal: { type: 'string', enum: PAY_SIGNALS },
+          date_text: { type: 'string', nullable: true },
+          date_iso: { type: 'string', nullable: true },
+        },
+        required: ['text', 'sentiment', 'pay_signal'],
+      },
+    },
+    original_language: { type: 'string' },
+  },
+  required: ['comments', 'original_language'],
+};
+
+function commentSystemPrompt(today) {
+  return `Te egy fuvarozói reputáció-elemző asszisztens vagy. A bemenet Facebook-képernyőképek
+egy fuvarozó/szállítmányozó cégről szóló posztról ÉS a hozzá tartozó kommentekről.
+A szöveg lehet román, magyar vagy angol nyelvű.
+
+Olvasd ki a posztot és MINDEN kommentet a képekről. Minden egyes kommenthez add meg:
+- author: a hozzászóló neve, ha látszik (különben null).
+- text: a komment szövege tömören, az eredeti nyelven.
+- sentiment: a cégre nézve 'positive' (korrekt, fizet, ajánlják), 'negative'
+  (nem fizet, csalás, panasz, megkárosít), vagy 'neutral' (kérdés, nem egyértelmű).
+- pay_signal: 'pays' (arra utal, hogy fizet/korrekt), 'nonpay' (nem fizet/megkárosít), 'unknown'.
+- date_text: a kommentnél látható időbélyeg EREDETI szövege (pl. "1 éve", "3 hét", "2 z", "5 std").
+- date_iso: ebből számított dátum 'YYYY-MM-DD' formában. MA: ${today}.
+  A relatív időt EHHEZ képest számold vissza. Ha nincs látható időpont, hagyd null.
+
+A poszt szövegéből próbáld kiolvasni az érintett cég nevét is (company_name).
+CSAK a képeken ténylegesen látható tartalomra támaszkodj, ne találj ki kommentet.`;
+}
+
+/**
+ * Képernyőképekből kinyeri a kommenteket (csak Gemini kulccsal megy – a kép-OCR-hez
+ * többmodellű AI kell). images: [{ mimeType, data(base64) }]. today: 'YYYY-MM-DD'.
+ */
+export async function extractCommentsFromImages(images, today) {
+  if (!API_KEY) {
+    const err = new Error('A képernyőkép-elemzéshez Gemini API-kulcs kell (GEMINI_API_KEY).');
+    err.code = 'NO_AI_KEY';
+    throw err;
+  }
+  const parts = [
+    { text: 'Elemezd a következő Facebook-képernyőképeket a fenti szabályok szerint.' },
+    ...images.map((im) => ({ inlineData: { mimeType: im.mimeType || 'image/jpeg', data: im.data } })),
+  ];
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+  const body = {
+    systemInstruction: { parts: [{ text: commentSystemPrompt(today) }] },
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: COMMENT_SCHEMA,
+      temperature: 0,
+    },
+  };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${await res.text()}`);
+    const json = await res.json();
+    const raw = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!raw) throw new Error('Gemini: üres válasz');
+    return sanitizeComments(JSON.parse(raw));
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function sanitizeComments(o) {
+  const comments = (o.comments || [])
+    .map((c) => ({
+      author: c.author?.trim() || null,
+      text: String(c.text || '').trim(),
+      sentiment: SENTIMENTS.includes(c.sentiment) ? c.sentiment : 'neutral',
+      pay_signal: PAY_SIGNALS.includes(c.pay_signal) ? c.pay_signal : 'unknown',
+      date_text: c.date_text?.trim() || null,
+      comment_date: isoDateOrNull(c.date_iso),
+    }))
+    .filter((c) => c.text);
+  return {
+    company_name: o.company_name?.trim() || null,
+    original_language: (o.original_language || 'other').toLowerCase().slice(0, 5),
+    comments,
+    engine: 'gemini',
+  };
+}
+
+/** Csak érvényes 'YYYY-MM-DD' dátumot fogad el, egyébként null. */
+export function isoDateOrNull(v) {
+  if (!v) return null;
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 function numOrNull(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
 function intOrNull(v) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; }
 function clamp01(v) { const n = Number(v); return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.5; }

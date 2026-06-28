@@ -5,13 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { authMiddleware, authEnabled } from './auth.js';
 import { sseHandler } from './events.js';
 import { previewShare, commitShare } from './posts.js';
+import { previewReport, commitReport } from './reports.js';
 import { listCompanies, getCompany, search, stats } from './queries.js';
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '25mb' })); // a képernyőképek base64-ben érkeznek
 app.use(express.urlencoded({ extended: true })); // Web Share Target POST-hoz
 
 const PORT = process.env.PORT || 4000;
@@ -59,6 +60,22 @@ api.post('/share/commit', (req, res) => {
     const result = commitShare(req.body, req.user);
     res.json(result);
   } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
+
+// --- Reputáció-beküldés: képernyőképekből AI komment-kinyerés + mentés ---
+api.post('/reports/preview', async (req, res) => {
+  try {
+    res.json(await previewReport({ images: req.body.images }));
+  } catch (e) {
+    const code = e.code === 'NO_AI_KEY' ? 400 : 500;
+    res.status(code).json({ error: String(e.message || e), code: e.code });
+  }
+});
+
+api.post('/reports/commit', (req, res) => {
+  try {
+    res.json(commitReport(req.body, req.user));
+  } catch (e) { res.status(400).json({ error: String(e.message || e) }); }
 });
 
 api.get('/companies', (req, res) => res.json(listCompanies({

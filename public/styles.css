@@ -87,3 +87,48 @@ textarea.f { min-height: 90px; resize: vertical; }
 .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); z-index: 60;
   background: #0b1220; border: 1px solid var(--line); padding: 12px 18px; border-radius: 12px;
   font-size: 14px; max-width: 90vw; }
+
+/* Cég-értékelés jelvény (fizető / nem fizető / vegyes) */
+.vbadge { font-size: 12px; padding: 3px 9px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+.vbadge.big { font-size: 15px; padding: 6px 14px; }
+.v-pays { background: #14532d; color: #bbf7d0; }
+.v-nonpay { background: #7f1d1d; color: #fecaca; }
+.v-mixed { background: #78350f; color: #fde68a; }
+.v-unknown { background: #334155; color: #cbd5e1; }
+.sumbar { margin-top: 8px; align-items: center; }
+.s-pos { color: var(--green); font-weight: 600; }
+.s-neg { color: var(--red); font-weight: 600; }
+.s-neu { color: var(--muted); }
+.verdict-head { margin: 14px 0 6px; }
+.trend { font-size: 13px; padding: 2px 8px; border-radius: 8px; margin-left: 6px; }
+.trend.up { background: #14532d; color: #bbf7d0; }
+.trend.down { background: #7f1d1d; color: #fecaca; }
+.sec { font-size: 14px; margin: 18px 0 8px; }
+
+/* Komment-idővonal: hangulat szerinti pötty-szín */
+.tl-positive::before { background: var(--green); }
+.tl-negative::before { background: var(--red); }
+.tl-neutral::before { background: var(--muted); }
+
+/* Cég-autocomplete */
+.ac-list { margin-top: 4px; }
+.ac-item { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px;
+  background: var(--bg); cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ac-item:active { background: var(--card); }
+
+/* Kép-bélyegképek */
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.thumb { position: relative; }
+.thumb img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.thumb button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
+  border: none; background: var(--red); color: #fff; font-size: 12px; cursor: pointer; line-height: 1; }
+.thumb-count { width: 100%; font-size: 12px; }
+
+/* Komment-szerkesztő (review) */
+.tally { display: flex; gap: 14px; margin: 14px 0 8px; font-size: 15px; }
+.cmt { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: var(--bg); }
+.cmt-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+.cmt-row .f { margin: 0; }
+.cmt-text { margin-top: 8px; min-height: 56px; }
+.cmt-del { background: transparent; border: 1px solid var(--line); color: var(--text); border-radius: 8px;
+  padding: 8px 10px; cursor: pointer; font-size: 16px; }

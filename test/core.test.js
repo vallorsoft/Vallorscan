@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeCui, normalizePlate, normalizeCompanyName, diceSimilarity, contentHash } from '../server/normalize.js';
-import { fallbackExtract } from '../server/ai.js';
+import { fallbackExtract, isoDateOrNull } from '../server/ai.js';
+import { computeVerdict } from '../server/verdict.js';
 
 test('CUI normalizálás RO prefixszel', () => {
   assert.equal(normalizeCui('RO 12345678'), '12345678');
@@ -39,4 +40,39 @@ test('fallback kinyerés román szövegből', () => {
   assert.equal(r.currency, 'RON');
   assert.equal(r.delay_days, 45);
   assert.equal(r.problem_type, 'non_payment');
+});
+
+test('ISO dátum validálás', () => {
+  assert.equal(isoDateOrNull('2025-03-14'), '2025-03-14');
+  assert.equal(isoDateOrNull('2025-03-14T10:00:00Z'), '2025-03-14');
+  assert.equal(isoDateOrNull('tegnap'), null);
+  assert.equal(isoDateOrNull(null), null);
+  assert.equal(isoDateOrNull('2025-13-40'), null);
+});
+
+test('cég-értékelés: pozitív többség → Fizető', () => {
+  const v = computeVerdict({ pos_count: 13, neg_count: 1, neu_count: 1, recent_pos: 0, recent_neg: 0 });
+  assert.equal(v.verdict, 'pays');
+  assert.equal(v.verdict_label, 'Fizető');
+});
+
+test('cég-értékelés: negatív többség → Nem fizető', () => {
+  const v = computeVerdict({ pos_count: 1, neg_count: 9, recent_pos: 0, recent_neg: 0 });
+  assert.equal(v.verdict, 'nonpay');
+});
+
+test('cég-értékelés: kiegyensúlyozott → Vegyes', () => {
+  const v = computeVerdict({ pos_count: 5, neg_count: 5, recent_pos: 0, recent_neg: 0 });
+  assert.equal(v.verdict, 'mixed');
+});
+
+test('cég-értékelés: nincs komment → Nincs adat', () => {
+  assert.equal(computeVerdict({}).verdict, 'unknown');
+});
+
+test('cég-értékelés: friss vélemény felülírja a régit (javuló trend)', () => {
+  // Régen 5 rossz, mostanában 5 jó → friss alapján Fizető + javuló trend.
+  const v = computeVerdict({ pos_count: 5, neg_count: 5, recent_pos: 5, recent_neg: 0 });
+  assert.equal(v.verdict, 'pays');
+  assert.equal(v.trend, 'improving');
 });

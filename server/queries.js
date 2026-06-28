@@ -1,6 +1,9 @@
 // Keresés és lekérdezések: cégnév, CUI, rendszám, kulcsszó (FTS) – mind támogatva.
 import { db } from './db.js';
 import { normalizeCui, normalizePlate, normalizeCompanyName } from './normalize.js';
+import { computeVerdict } from './verdict.js';
+
+export { computeVerdict };
 
 const companyAgg = `
   SELECT c.*,
@@ -9,13 +12,26 @@ const companyAgg = `
     (SELECT MAX(p.delay_days) FROM posts p WHERE p.company_id = c.id) AS max_delay,
     (SELECT MAX(p.created_at) FROM posts p WHERE p.company_id = c.id) AS last_post_at,
     (SELECT GROUP_CONCAT(DISTINCT p.problem_type) FROM posts p WHERE p.company_id = c.id) AS problem_types,
-    (SELECT GROUP_CONCAT(plate_norm) FROM plates pl WHERE pl.company_id = c.id) AS plates
+    (SELECT GROUP_CONCAT(plate_norm) FROM plates pl WHERE pl.company_id = c.id) AS plates,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id) AS comment_count,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='positive') AS pos_count,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='negative') AS neg_count,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='neutral') AS neu_count,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='positive'
+       AND cm.comment_date >= date('now','-6 months')) AS recent_pos,
+    (SELECT COUNT(*) FROM comments cm WHERE cm.company_id = c.id AND cm.sentiment='negative'
+       AND cm.comment_date >= date('now','-6 months')) AS recent_neg,
+    (SELECT MAX(comment_date) FROM comments cm WHERE cm.company_id = c.id) AS last_comment_at
   FROM companies c
 `;
 
+function decorate(row) {
+  return { ...row, ...computeVerdict(row) };
+}
+
 export function listCompanies({ limit = 50, offset = 0 } = {}) {
-  return db.prepare(`${companyAgg} ORDER BY last_post_at DESC NULLS LAST, c.updated_at DESC LIMIT ? OFFSET ?`)
-    .all(limit, offset);
+  return db.prepare(`${companyAgg} ORDER BY last_comment_at DESC NULLS LAST, last_post_at DESC NULLS LAST, c.updated_at DESC LIMIT ? OFFSET ?`)
+    .all(limit, offset).map(decorate);
 }
 
 export function getCompany(id) {
@@ -24,8 +40,11 @@ export function getCompany(id) {
   const posts = db.prepare(
     `SELECT * FROM posts WHERE company_id = ? ORDER BY COALESCE(occurred_at, created_at) DESC`
   ).all(id);
+  const comments = db.prepare(
+    `SELECT * FROM comments WHERE company_id = ? ORDER BY COALESCE(comment_date, created_at) DESC`
+  ).all(id);
   const plates = db.prepare('SELECT plate_norm, plate_raw FROM plates WHERE company_id = ?').all(id);
-  return { ...company, posts, plate_list: plates };
+  return { ...decorate(company), posts, comments, plate_list: plates };
 }
 
 /**
@@ -40,14 +59,14 @@ export function search(qRaw, { limit = 50 } = {}) {
   const cui = normalizeCui(q);
   if (cui) {
     const c = db.prepare(`${companyAgg} WHERE c.cui = ?`).all(cui);
-    if (c.length) return { mode: 'cui', companies: c };
+    if (c.length) return { mode: 'cui', companies: c.map(decorate) };
   }
   // Rendszám?
   const plate = normalizePlate(q);
   if (plate) {
     const c = db.prepare(`${companyAgg} WHERE c.id IN (SELECT company_id FROM plates WHERE plate_norm LIKE ?)`)
       .all(`%${plate}%`);
-    if (c.length) return { mode: 'plate', companies: c };
+    if (c.length) return { mode: 'plate', companies: c.map(decorate) };
   }
   // Cégnév (normalizált, részleges).
   const nameN = normalizeCompanyName(q);
@@ -74,7 +93,7 @@ export function search(qRaw, { limit = 50 } = {}) {
   // Egyesítés, duplikátum nélkül.
   const map = new Map();
   for (const c of [...byName, ...byKeyword]) map.set(c.id, c);
-  return { mode: 'search', companies: [...map.values()].slice(0, limit) };
+  return { mode: 'search', companies: [...map.values()].slice(0, limit).map(decorate) };
 }
 
 export function stats() {
