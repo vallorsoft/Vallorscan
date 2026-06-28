@@ -540,7 +540,8 @@ const App = (() => {
       <button class="btn btn-ghost" onclick="App.closeSheet()">Mégse</button>`;
   }
   function commentEditHtml(c, i) {
-    return `<div class="cmt" data-i="${i}">
+    return `<div class="cmt${c.about_other_company ? ' cmt-other' : ''}" data-i="${i}">
+      ${c.about_other_company ? `<div class="review-flag">⚠ Lehet, hogy MÁS cégről szól${c.other_company_name ? ` (${esc(c.other_company_name)})` : ''} – ellenőrizd, és töröld (🗑), ha nem ehhez a céghez tartozik.</div>` : ''}
       <div class="cmt-row">
         <select class="f cmt-sent">${sentOptions(c.sentiment)}</select>
         <input class="f cmt-date" value="${esc(c.comment_date || '')}" placeholder="ÉÉÉÉ-HH-NN" />
@@ -566,6 +567,8 @@ const App = (() => {
         author: prev.author || null,
         tags: prev.tags || [],
         due_text: prev.due_text || null,
+        about_other_company: prev.about_other_company || false,
+        other_company_name: prev.other_company_name || null,
         sentiment: row.querySelector('.cmt-sent').value,
         comment_date: row.querySelector('.cmt-date').value.trim() || null,
         amount: row.querySelector('.cmt-amount').value.trim() || null,

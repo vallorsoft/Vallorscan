@@ -253,6 +253,8 @@ const COMMENT_SCHEMA = {
           sentiment: { type: 'string', enum: SENTIMENTS },
           pay_signal: { type: 'string', enum: PAY_SIGNALS },
           tags: { type: 'array', items: { type: 'string', enum: COMMENT_TAGS } },
+          about_other_company: { type: 'boolean' },
+          other_company_name: { type: 'string', nullable: true },
           amount: { type: 'number', nullable: true },
           currency: { type: 'string', nullable: true },
           due_text: { type: 'string', nullable: true },
@@ -272,6 +274,9 @@ function commentSystemPrompt(today) {
 egy fuvarozó/szállítmányozó cégről szóló posztról ÉS a hozzá tartozó kommentekről.
 A szöveg lehet román, magyar vagy angol nyelvű.
 
+A poszt írója EGY KONKRÉT cégről kérdez vagy ír – EZ a TÁRGYALT cég (ezt add meg company_name-ben).
+A kommentekben viszont gyakran MÁS cégeket is megemlítenek a saját tapasztalatukkal – ezekre figyelj.
+
 Olvasd ki a posztot és MINDEN kommentet a képekről. Minden egyes kommenthez add meg:
 - author: a hozzászóló neve, ha látszik (különben null).
 - text: a komment szövege tömören, az EREDETI nyelven (ahogy a képen szerepel).
@@ -289,6 +294,9 @@ Olvasd ki a posztot és MINDEN kommentet a képekről. Minden egyes kommenthez a
     fraud (csalás/átverés, pl. "găinari", "javre", "escroc", "țepari"),
     damage (káresemény), dispute (vita/reklamáció),
     recommended (ajánlják), good_payer (korrekt / jól fizet), other.
+- about_other_company: true, HA a komment egyértelműen egy MÁSIK cégről szól (nem a tárgyalt
+  cégről) – pl. valaki a saját, más céggel kapcsolatos esetét hozza fel. Egyébként false.
+- other_company_name: ha about_other_company=true és látszik, ANNAK a másik cégnek a neve.
 - amount: ha említenek konkrét tartozás-összeget, a szám (csak a szám). Pl. "4800 euro" -> 4800.
 - currency: a pénznem (EUR, RON, HUF), ha van.
 - due_text: a számla/lejárat megnevezése, ha említik (pl. "factura din decembrie", "scadentă 22-01-2026").
@@ -417,6 +425,8 @@ function sanitizeComments(o) {
       sentiment: SENTIMENTS.includes(c.sentiment) ? c.sentiment : 'neutral',
       pay_signal: PAY_SIGNALS.includes(c.pay_signal) ? c.pay_signal : 'unknown',
       tags: [...new Set((c.tags || []).filter((t) => COMMENT_TAGS.includes(t)))],
+      about_other_company: !!c.about_other_company,
+      other_company_name: c.other_company_name?.trim() || null,
       amount: numOrNull(c.amount),
       currency: normCurrency(c.currency),
       due_text: c.due_text?.trim() || null,
