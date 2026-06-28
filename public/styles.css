@@ -16,6 +16,11 @@ body { padding-bottom: 90px; }
 .icon-btn { background: none; border: none; color: var(--text); font-size: 20px; cursor: pointer; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); display: inline-block; }
 .dot.off { background: var(--red); }
+.pending-btn { position: relative; }
+.pending-badge { position: absolute; top: -2px; right: -4px; background: var(--red); color: #fff;
+  font-size: 11px; font-weight: 700; min-width: 16px; height: 16px; border-radius: 999px;
+  padding: 0 4px; line-height: 16px; text-align: center; }
+.pending-badge:empty { display: none; }
 
 .search-bar { position: sticky; top: 53px; z-index: 19; background: var(--bg);
   padding: 10px 16px; border-bottom: 1px solid var(--line); }

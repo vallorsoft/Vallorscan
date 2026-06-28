@@ -15,6 +15,7 @@
     <div class="brand" onclick="App.go('list')">🚚 Vallorscan</div>
     <div class="top-actions">
       <span id="net-dot" class="dot" title="kapcsolat"></span>
+      <button class="icon-btn pending-btn" id="pending-btn" title="Megerősítésre vár" onclick="App.openPending()" style="display:none">📥<span id="pending-count" class="pending-badge"></span></button>
       <button class="icon-btn" title="Beállítások" onclick="App.go('settings')">⚙</button>
     </div>
   </header>

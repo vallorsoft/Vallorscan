@@ -111,7 +111,25 @@ CREATE TABLE IF NOT EXISTS company_refs (
 CREATE INDEX IF NOT EXISTS ix_refs_company ON company_refs(company_id);
 CREATE INDEX IF NOT EXISTS ix_refs_code ON company_refs(ref_code);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_refs ON company_refs(company_id, exchange, ref_code);
+
+-- Háttér-feldolgozású beküldések: feltöltés → AI a háttérben → 'megerősítésre vár' → jóváhagyás.
+CREATE TABLE IF NOT EXISTS reports (
+  id           TEXT PRIMARY KEY,
+  company_id   TEXT,
+  company_name TEXT,
+  cui          TEXT,
+  status       TEXT NOT NULL,   -- 'processing' | 'pending_review' | 'error'
+  result       TEXT,            -- JSON: { company_name, comments[] }
+  error        TEXT,
+  created_by   TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_reports_status ON reports(status, created_at DESC);
 `);
+
+// Szerver-újraindításkor a félbemaradt feldolgozásokat hibásra állítjuk (a képek már nincsenek meg).
+db.exec("UPDATE reports SET status='error', error='Megszakadt (szerver újraindult) – töltsd fel újra.' WHERE status='processing'");
 
 // --- Migrációk: meglévő adatbázisnál a hiányzó oszlopok pótlása (adatvesztés nélkül) ---
 function addColumnIfMissing(table, col, type) {

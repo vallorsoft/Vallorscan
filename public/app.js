@@ -249,7 +249,8 @@ const App = (() => {
       <input type="file" id="r-files" accept="image/*" multiple style="display:none" />
       <button type="button" class="btn btn-ghost" id="r-addbtn">📷 Képek hozzáadása</button>
       <div id="r-thumbs" class="thumbs"></div>
-      <button class="btn btn-primary" id="r-analyze">🤖 Kommentek elemzése (AI)</button>`;
+      <button class="btn btn-primary" id="r-analyze">📤 Feltöltés (a háttérben feldolgozza)</button>
+      <p class="muted" style="font-size:12px;margin-top:8px">Feltöltés után nyugodtan kiléphetsz – a feldolgozás a háttérben fut, és a 📥 „Megerősítésre vár" listában jelenik meg.</p>`;
     // listeners
     let t;
     document.getElementById('r-company').addEventListener('input', (e) => {
@@ -259,7 +260,7 @@ const App = (() => {
     });
     document.getElementById('r-addbtn').addEventListener('click', () => document.getElementById('r-files').click());
     document.getElementById('r-files').addEventListener('change', handleFiles);
-    document.getElementById('r-analyze').addEventListener('click', analyzeReport);
+    document.getElementById('r-analyze').addEventListener('click', queueUpload);
   }
 
   async function acSearch(q) {
@@ -318,36 +319,70 @@ const App = (() => {
     });
   }
 
-  function renderProcessing() {
-    document.getElementById('sheet-title').textContent = 'Feldolgozás';
-    document.getElementById('sheet-body').innerHTML = `
-      <div class="processing">
-        <div class="spinner"></div>
-        <p><strong>🤖 Az AI elemzi a képeket…</strong></p>
-        <p class="muted">Kiolvassa a kommenteket, összegeket, dátumokat és a problémákat. Ez pár másodperc.</p>
-      </div>`;
+  // Feltöltés sorba: azonnal visszatér, a háttérben dolgozza fel. A kliens kiléphet.
+  async function queueUpload() {
+    if (!report.images.length) return toast('Tölts fel legalább egy képernyőképet');
+    const co = { id: val('r-company-id'), name: val('r-company'), cui: val('r-cui') };
+    const payload = {
+      company_id: co.id || undefined, company_name: co.name || undefined, cui: co.cui || undefined,
+      images: report.images.map(({ mimeType, data }) => ({ mimeType, data })),
+    };
+    try { await api('/reports/queue', { method: 'POST', body: JSON.stringify(payload) }); }
+    catch (e) { return toast('Feltöltés sikertelen: ' + e.message); }
+    closeSheet();
+    toast('Feltöltve ✓ A háttérben feldolgozza – nézd a 📥 listát.');
+    refreshPendingCount();
   }
 
-  async function analyzeReport() {
-    if (!report.images.length) return toast('Tölts fel legalább egy képernyőképet');
-    // A cégnév itt NEM kötelező – ha üres, az AI által kiolvasottat ajánljuk fel utána.
-    report.company = { id: val('r-company-id'), name: val('r-company'), cui: val('r-cui') };
-    renderProcessing(); // azonnal ugrunk a feldolgozás ablakba (nem fagyott képernyő)
-    let r;
-    try {
-      r = await api('/reports/preview', {
-        method: 'POST',
-        body: JSON.stringify({ images: report.images.map(({ mimeType, data }) => ({ mimeType, data })) }),
-      });
-    } catch (e) {
-      document.getElementById('sheet-body').innerHTML = `
-        <div class="review-flag">❌ Elemzés sikertelen: ${esc(e.message)}</div>
-        <button class="btn btn-ghost" onclick="App.closeSheet()">Bezár</button>`;
-      return;
+  // ---- Megerősítésre vár (háttér-feldolgozás eredménye) ----
+  async function openPending() {
+    state.view = 'pending';
+    let rows; try { rows = await api('/reports/pending'); } catch { rows = []; }
+    view.innerHTML = `
+      <button class="btn btn-ghost" style="margin:0 0 12px;width:auto;padding:8px 14px" onclick="App.go('list')">← Vissza</button>
+      <h3 class="sec">Megerősítésre vár (${rows.length})</h3>
+      ${rows.length ? rows.map(pendingCard).join('') : '<p class="muted">Nincs függőben lévő beküldés.</p>'}`;
+  }
+  function pendingCard(r) {
+    const name = r.company_name || '(név nélkül)';
+    if (r.status === 'processing') {
+      return `<div class="card" style="cursor:default"><div class="cname">${esc(name)}</div>
+        <div class="meta">⏳ feldolgozás alatt…</div></div>`;
     }
-    report.preview = r;
-    if (r.company_name && !report.company.name) report.company.name = r.company_name;
-    renderReportReview(r);
+    if (r.status === 'error') {
+      return `<div class="card" style="cursor:default"><div class="cname">${esc(name)}</div>
+        <div class="meta s-neg">❌ ${esc(r.error || 'hiba')}</div>
+        <button class="btn btn-ghost" style="width:auto;padding:6px 12px;margin-top:8px" onclick="App.discardReport('${r.id}')">Eldobás</button></div>`;
+    }
+    return `<div class="card" onclick="App.openReport('${r.id}')"><div class="cname">${esc(name)}</div>
+      <div class="meta sumbar"><span class="vbadge v-mixed">${r.comment_count} komment · átnézésre vár</span>
+      <span class="muted">${dateStr(r.created_at)}</span></div></div>`;
+  }
+  async function openReport(id) {
+    let r; try { r = await api('/reports/' + id); } catch (e) { return toast('Hiba: ' + e.message); }
+    if (r.status !== 'pending_review' || !r.result) return toast('Ez a beküldés még nincs kész vagy hibás.');
+    report = { id, images: [], preview: r.result, company: { id: r.company_id || '', name: r.company_name || '', cui: r.cui || '' } };
+    sheet.classList.remove('hidden');
+    renderReportReview(r.result);
+  }
+  function discardReport(id) {
+    if (!confirm('Biztos eldobod ezt a beküldést?')) return;
+    api('/reports/' + id, { method: 'DELETE' }).then(() => { openPending(); refreshPendingCount(); }).catch((e) => toast('Hiba: ' + e.message));
+  }
+  async function refreshPendingCount() {
+    let rows; try { rows = await api('/reports/pending'); } catch { return; }
+    const n = rows.length;
+    const btn = document.getElementById('pending-btn'), badge = document.getElementById('pending-count');
+    if (btn) btn.style.display = n ? '' : 'none';
+    if (badge) badge.textContent = n ? String(n) : '';
+  }
+
+  function tally(cs) {
+    return cs.reduce((a, c) => (a[c.sentiment] = (a[c.sentiment] || 0) + 1, a), {});
+  }
+  function sentOptions(sel) {
+    return ['positive', 'negative', 'neutral'].map((v) =>
+      `<option value="${v}" ${sel === v ? 'selected' : ''}>${SENT_ICON[v]} ${v === 'positive' ? 'jó' : v === 'negative' ? 'rossz' : 'semleges'}</option>`).join('');
   }
 
   function tally(cs) {
@@ -441,8 +476,12 @@ const App = (() => {
         pay_signal: c.sentiment === 'positive' ? 'pays' : c.sentiment === 'negative' ? 'nonpay' : 'unknown',
       })),
     };
-    api('/reports/commit', { method: 'POST', body: JSON.stringify(payload) })
-      .then((r) => { toast(`Mentve ✓ (${r.inserted} új komment${r.skipped ? `, ${r.skipped} duplikátum` : ''})`); closeSheet(); loadList(); })
+    // Jóváhagyás: a háttérben feldolgozott beküldés véglegesítése (a kommentek mentése + a beküldés törlése).
+    api('/reports/' + report.id + '/commit', { method: 'POST', body: JSON.stringify(payload) })
+      .then((r) => {
+        toast(`Jóváhagyva ✓ (${r.inserted} új komment${r.skipped ? `, ${r.skipped} duplikátum` : ''})`);
+        closeSheet(); refreshPendingCount(); openPending();
+      })
       .catch((e) => toast('Mentés sikertelen: ' + e.message));
   }
 
@@ -476,6 +515,7 @@ const App = (() => {
     const t = token();
     const es = new EventSource(base() + '/api/events' + (t ? `?token=${encodeURIComponent(t)}` : ''));
     es.addEventListener('post.created', () => { if (state.view === 'list') loadList(); });
+    es.addEventListener('report.updated', () => { refreshPendingCount(); if (state.view === 'pending') openPending(); });
     es.onerror = () => {};
   }
 
@@ -530,10 +570,10 @@ const App = (() => {
     });
     window.addEventListener('online', updateNet);
     window.addEventListener('offline', updateNet);
-    updateNet(); connectSSE(); loadList(); handleSharedParam();
+    updateNet(); connectSSE(); loadList(); handleSharedParam(); refreshPendingCount();
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, analyzeReport, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge };
+  return { go, openCompany, openCompose, closeSheet, saveSettings, pickCompany, removeImg, delComment, saveReport, useAiName, addRef, delRefByIndex, renameCompany, deleteCompany, deleteComment, pickMerge, queueUpload, openPending, openReport, discardReport };
 })();

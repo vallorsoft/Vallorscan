@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { authMiddleware, authEnabled } from './auth.js';
 import { sseHandler } from './events.js';
 import { previewShare, commitShare } from './posts.js';
-import { previewReport, commitReport } from './reports.js';
+import { previewReport, commitReport, queueReport, listPendingReports, getReport, approveReport, discardReport } from './reports.js';
 import { listCompanies, getCompany, search, stats, addCompanyRef, removeCompanyRef, deleteComment, deleteCompany, renameCompany } from './queries.js';
 import { mergeCompanies } from './dedup.js';
 import { PROBLEM_TYPES } from './ai.js';
@@ -88,6 +88,26 @@ api.post('/reports/commit', (req, res) => {
   try {
     res.json(commitReport(req.body, req.user));
   } catch (e) { res.status(400).json({ error: String(e.message || e) }); }
+});
+
+// --- Háttér-feldolgozás: feltöltés sorba (azonnal visszatér) → 'megerősítésre vár' → jóváhagyás ---
+api.post('/reports/queue', (req, res) => {
+  try { res.json(queueReport(req.body, req.user)); }
+  catch (e) { res.status(400).json({ error: String(e.message || e) }); }
+});
+api.get('/reports/pending', (req, res) => res.json(listPendingReports()));
+api.get('/reports/:id', (req, res) => {
+  const r = getReport(req.params.id);
+  if (!r) return res.status(404).json({ error: 'not found' });
+  res.json(r);
+});
+api.post('/reports/:id/commit', (req, res) => {
+  try { res.json(approveReport(req.params.id, req.body, req.user)); }
+  catch (e) { res.status(400).json({ error: String(e.message || e) }); }
+});
+api.delete('/reports/:id', (req, res) => {
+  try { res.json(discardReport(req.params.id)); }
+  catch (e) { res.status(400).json({ error: String(e.message || e) }); }
 });
 
 api.get('/companies', (req, res) => res.json(listCompanies({
