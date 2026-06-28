@@ -2,6 +2,7 @@
   "name": "Vallorscan – Fuvarozó ellenőrzés",
   "short_name": "Vallorscan",
   "description": "Problémás / nem fizető fuvarozó cégek mentése és visszakeresése.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

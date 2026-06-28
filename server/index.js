@@ -21,6 +21,12 @@ const PUBLIC = path.join(__dirname, '..', 'public');
 // --- Health check (Fly.io / load balancer figyeli, auth nélkül) ---
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
+// --- TWA / PWABuilder APK: Digital Asset Links (a böngészősáv elrejtéséhez).
+// A tartalmat az ASSETLINKS_JSON env-ből szolgáljuk ki – a PWABuilder adja meg. ---
+app.get('/.well-known/assetlinks.json', (req, res) => {
+  res.type('application/json').send(process.env.ASSETLINKS_JSON || '[]');
+});
+
 // --- Valós idejű események (auth a query token alapján is mehet EventSource-nál) ---
 app.get('/api/events', authMiddleware, sseHandler);
 
