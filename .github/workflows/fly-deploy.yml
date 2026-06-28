@@ -47,8 +47,8 @@ jobs:
         run: |
           count=$(flyctl volumes list -a "$FLY_APP" --json | grep -c '"id"' || true)
           if [ "$count" -eq 0 ]; then
-            echo "Volume létrehozása (vallorscan_data, 1GB, $FLY_REGION)"
-            flyctl volumes create vallorscan_data -a "$FLY_APP" --region "$FLY_REGION" --size 1 --yes
+            echo "Volume létrehozása (data, 1GB, $FLY_REGION)"
+            flyctl volumes create data -a "$FLY_APP" --region "$FLY_REGION" --size 1 --yes
           else
             echo "A volume már létezik ($count db)"
           fi

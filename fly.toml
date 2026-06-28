@@ -13,8 +13,9 @@ primary_region = "fra"   # Frankfurt – közel HU/RO-hoz; igény szerint módos
   DB_PATH = "/data/vallorscan.sqlite"
 
 # Perzisztens lemez a SQLite adatbázisnak (deploy között megmarad).
+# A volume neve "data" – ezt a Fly Launch hozta létre az appal együtt.
 [mounts]
-  source = "vallorscan_data"
+  source = "data"
   destination = "/data"
 
 [http_service]
