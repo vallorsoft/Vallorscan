@@ -2,7 +2,7 @@
 # Fontos: SQLite egyetlen fájl → CSAK 1 gép futhat, perzisztens volume-mal.
 # Soha ne skálázd 2+ gépre, mert a SQLite fájl nem osztható meg gépek között.
 
-app = "vallorscan-app"
+app = "vallorscan"
 primary_region = "fra"   # Frankfurt – közel HU/RO-hoz; igény szerint módosítható
 
 [build]
